@@ -1,8 +1,8 @@
 # Ledgerly
 
-Ledgerly is a secure personal finance transaction extraction app built as a fullstack assignment. Authenticated users can paste raw bank transaction text, extract structured data, save it to PostgreSQL, and view only their own tenant-scoped transactions.
+Ledgerly is a secure personal finance transaction management app built as a fullstack assignment. Authenticated users can paste raw bank transaction text, preview and save structured drafts, manage category rules, export CSVs, and view only their own tenant-scoped transactions.
 
-The final source-of-truth PRD lives in [docs/PRD.md](docs/PRD.md).
+The original assignment PRD lives in [docs/PRD.md](docs/PRD.md). This package keeps the required secure extraction workflow and expands it with transaction-management features documented below.
 
 ## Tech Stack
 
@@ -13,6 +13,7 @@ The final source-of-truth PRD lives in [docs/PRD.md](docs/PRD.md).
 - Frontend session bridge: Auth.js credentials provider stores the Better Auth bearer token in the Auth.js JWT session
 - UI: Tailwind CSS + shadcn/ui-style primitives
 - Tests: Jest + ts-jest
+- E2E: Playwright smoke test
 
 ## Architecture
 
@@ -56,7 +57,7 @@ Open `http://localhost:3000`.
 `.env.example` includes the required variables:
 
 ```bash
-DATABASE_URL="postgresql://ledgerly:ledgerly@localhost:5432/ledgerly?schema=public"
+DATABASE_URL="postgresql://ledgerly:ledgerly@localhost:5433/ledgerly?schema=public"
 BETTER_AUTH_SECRET="replace-with-at-least-32-random-characters"
 BETTER_AUTH_URL="http://localhost:4000"
 JWT_SECRET="replace-with-at-least-32-random-characters-if-you-enable-custom-jwt-signing"
@@ -76,6 +77,7 @@ BACKEND_INTERNAL_URL="http://localhost:4000"
 
 ```bash
 npm test
+npm run test:e2e
 npm run typecheck
 npm run build
 npm run prisma:generate
@@ -100,35 +102,135 @@ Each seeded user gets a separate personal organization and team.
 ```http
 POST /api/auth/register
 POST /api/auth/login
+POST /api/transactions/preview
+POST /api/transactions
 POST /api/transactions/extract
-GET /api/transactions?limit=10&cursor=<id>
+GET /api/transactions?limit=10&cursor=<opaque_cursor>
+GET /api/transactions/export
+DELETE /api/transactions/:id
+GET /api/category-rules
+POST /api/category-rules
+PATCH /api/category-rules/:id
+DELETE /api/category-rules/:id
 ```
 
-`POST /api/transactions/extract` accepts:
+All transaction and category-rule endpoints are protected. The backend derives `userId`, `organizationId`, and `teamId` from the verified Better Auth session; client-supplied ownership fields are ignored.
 
-```json
-{ "text": "raw bank transaction text..." }
-```
-
-Successful extraction returns:
+`POST /api/transactions/preview` accepts raw text and returns editable drafts without saving:
 
 ```json
 {
-  "transaction": {
-    "id": "transaction_id",
-    "date": "2025-12-11",
-    "description": "STARBUCKS COFFEE MUMBAI",
-    "amount": -420,
-    "type": "DEBIT",
-    "balanceAfter": 18420.5,
-    "category": null,
-    "confidence": 0.95,
-    "createdAt": "2025-12-11T10:00:00.000Z"
-  }
+  "text": "raw bank transaction text...",
+  "accountLabel": "Personal"
 }
 ```
 
-Transaction listing returns `items` and `nextCursor`. A temporary `transactions` alias is also returned for frontend compatibility.
+The preview parser supports multiple transactions separated by blank lines. Each draft includes `draftId`, `sourceText`, `status`, `accountLabel`, and duplicate metadata:
+
+```json
+{
+  "drafts": [
+    {
+      "draftId": "draft-1",
+      "date": "2025-12-11",
+      "description": "STARBUCKS COFFEE MUMBAI",
+      "amount": -420,
+      "type": "DEBIT",
+      "balanceAfter": 18420.5,
+      "category": "Dining",
+      "confidence": 1,
+      "status": "SAVED",
+      "accountLabel": "Personal",
+      "sourceText": "raw source text",
+      "duplicate": {
+        "isDuplicate": false,
+        "existingId": null
+      }
+    }
+  ]
+}
+```
+
+`POST /api/transactions` saves one to 100 reviewed drafts:
+
+```json
+{
+  "drafts": [
+    {
+      "date": "2025-12-11",
+      "description": "STARBUCKS COFFEE MUMBAI",
+      "amount": -420,
+      "type": "DEBIT",
+      "balanceAfter": 18420.5,
+      "category": "Dining",
+      "confidence": 1,
+      "status": "SAVED",
+      "accountLabel": "Personal",
+      "sourceText": "raw source text"
+    }
+  ]
+}
+```
+
+The response is:
+
+```json
+{
+  "transactions": [
+    {
+      "id": "transaction_id",
+      "date": "2025-12-11",
+      "description": "STARBUCKS COFFEE MUMBAI",
+      "amount": -420,
+      "type": "DEBIT",
+      "balanceAfter": 18420.5,
+      "category": "Dining",
+      "confidence": 1,
+      "status": "SAVED",
+      "accountLabel": "Personal",
+      "duplicateOfId": null,
+      "createdAt": "2025-12-11T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+`POST /api/transactions/extract` remains as a single-step parse-and-save endpoint. It accepts:
+
+```json
+{
+  "text": "raw bank transaction text...",
+  "accountLabel": "Personal"
+}
+```
+
+Successful extraction returns a saved `transaction` and duplicate metadata. Returned transaction fields are `id`, `date`, `description`, `amount`, `type`, `balanceAfter`, `category`, `confidence`, `status`, `accountLabel`, `duplicateOfId`, and `createdAt`.
+
+Transaction listing returns `items`, `nextCursor`, and a temporary `transactions` alias for frontend compatibility. `nextCursor` is an opaque cursor containing the last row's `createdAt + id`; incoming cursors must belong to the authenticated tenant before they are accepted. Supported filters are:
+
+- `search`
+- `dateFrom`
+- `dateTo`
+- `type=DEBIT|CREDIT`
+- `category`
+- `status=SAVED|NEEDS_REVIEW`
+- `accountLabel`
+- `minConfidence`
+
+`GET /api/transactions/export` accepts the same filters and returns up to 1,000 tenant-scoped rows as CSV. CSV columns are `date`, `description`, `amount`, `type`, `balanceAfter`, `category`, `confidence`, `status`, `accountLabel`, and `createdAt`.
+
+`DELETE /api/transactions/:id` deletes only a transaction owned by the authenticated user and organization.
+
+Category rules are tenant-scoped phrase-to-category mappings. They are applied before explicit parsed categories and built-in categories:
+
+```json
+{
+  "matchText": "starbucks",
+  "category": "Client Meals"
+}
+```
+
+`POST /api/category-rules` upserts by `organizationId + matchText`. `PATCH /api/category-rules/:id` and `DELETE /api/category-rules/:id` require the rule to belong to the authenticated user's tenant.
 
 Error responses use:
 
@@ -158,6 +260,7 @@ Supported money and debit indicators:
 - `-420.00`
 - `₹1,250.00 debited`
 - `₹2,999.00 Dr`
+- `->` and `→` balance arrows
 
 Confidence is a completeness score:
 
@@ -202,18 +305,39 @@ The backend never trusts `userId`, `organizationId`, or `teamId` from request bo
 
 ## Cursor Pagination
 
-Transactions are sorted by `createdAt desc, id desc`. The backend fetches `limit + 1` rows, returns the requested page, and returns the last item ID as `nextCursor` when another page exists.
+Transactions are sorted by `createdAt desc, id desc`. The backend fetches `limit + 1` rows, returns the requested page, and returns an opaque composite cursor when another page exists. Listing and export filters are always combined with the authenticated `userId` and `organizationId`.
 
 Prisma indexes support tenant-scoped listing and date lookup:
 
 - `userId + createdAt`
 - `organizationId + createdAt`
+- `userId + organizationId + createdAt + id`
+- `organizationId + createdAt + id`
 - `userId + date`
 - `organizationId + date`
+- `organizationId + status`
+- `organizationId + category`
+- `organizationId + accountLabel`
 
-## Optional Postgres RLS
+## Transaction Management
 
-The application enforces isolation in backend queries. An optional PostgreSQL RLS helper is included at `apps/backend/prisma/rls.sql`:
+Draft previews make bulk import reviewable before persistence. Blank-line-separated raw text produces multiple drafts, and drafts with confidence below `0.85` are marked `NEEDS_REVIEW`; higher-confidence drafts are marked `SAVED`.
+
+Duplicate detection compares date, amount, account label, and normalized description inside the authenticated tenant. Duplicate matches return the existing transaction ID in preview metadata or save `duplicateOfId` for single-step extraction.
+
+Bulk draft save treats `duplicateOfId` as untrusted input. If a client sends it, the backend keeps it only when the referenced transaction belongs to the authenticated `userId + organizationId`; cross-tenant or fabricated IDs are stored as `null`.
+
+Category resolution uses this precedence:
+
+1. User category rules
+2. Explicit parsed category text
+3. Built-in merchant mappings when enabled
+
+## Postgres RLS
+
+The application enforces isolation in backend queries and the Prisma migration enables and forces PostgreSQL RLS on `transaction` and `category_rule`. Tenant-scoped Prisma operations run inside a transaction that sets `app.current_organization_id` before touching those tables.
+
+For databases created before the migration was added, the same policy SQL is available at `apps/backend/prisma/rls.sql`:
 
 ```bash
 psql "$DATABASE_URL" -f apps/backend/prisma/rls.sql
@@ -230,13 +354,14 @@ psql "$DATABASE_URL" -f apps/backend/prisma/rls.sql
 7. Explain that Better Auth owns auth and tenant membership.
 8. Explain that backend transaction queries derive ownership from the verified session.
 9. Explain deterministic parser logic, MM/DD slash dates, confidence scoring, pagination, and indexes.
-10. Run `npm test` and show the passing parser/isolation tests.
+10. Run `npm test` and show the passing parser, auth route, and isolation tests.
+11. Run `npm run test:e2e` with Postgres running to show User A's saved transaction is hidden from User B.
 
 ## Known Trade-Offs
 
 - Auth.js is used only as a Next.js session bridge; Better Auth remains the auth source of truth.
 - Parser support is intentionally limited to the assignment formats and nearby variants.
-- The current tests cover parser behavior and tenant filter construction. Stronger follow-up coverage would add route-level tests against a disposable database.
+- DB-backed auth route tests require `DATABASE_URL` to be reachable. They self-skip only in local environments where the disposable Postgres service is not running.
 - Deployment is not included in this local package, but the app is structured for Vercel frontend plus Railway/Render/Fly/Neon/Supabase Postgres backend/database.
 
 ## AI Tools Used

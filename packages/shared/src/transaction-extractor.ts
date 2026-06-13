@@ -40,13 +40,32 @@ export const extractedTransactionSchema = z.object({
 
 export type ExtractedTransaction = z.infer<typeof extractedTransactionSchema>;
 
+export type CategoryRuleInput = {
+  matchText: string;
+  category: string;
+};
+
+export type ExtractTransactionOptions = {
+  categoryRules?: CategoryRuleInput[];
+  enableBuiltInCategories?: boolean;
+};
+
+export type TransactionReviewStatus = "SAVED" | "NEEDS_REVIEW";
+
+export type TransactionDraft = ExtractedTransaction & {
+  draftId: string;
+  sourceText: string;
+  status: TransactionReviewStatus;
+  accountLabel: string;
+};
+
 type DateHit = {
   iso: string;
   raw: string;
   index: number;
 };
 
-export function extractTransaction(rawText: string): ExtractedTransaction {
+export function extractTransaction(rawText: string, options: ExtractTransactionOptions = {}): ExtractedTransaction {
   const text = rawText.replace(/\s+/g, " ").trim();
   const dateHit = findDate(text);
   const amountHit = findAmount(text);
@@ -54,7 +73,8 @@ export function extractTransaction(rawText: string): ExtractedTransaction {
   const amount = normalizeAmount(amountHit?.value ?? 0, type);
   const balanceAfter = findBalance(text);
   const description = findDescription(text, dateHit?.raw, amountHit?.raw);
-  const category = findCategory(text);
+  const explicitCategory = findCategory(text);
+  const category = resolveCategory(description, explicitCategory, options);
 
   const confidence =
     (dateHit ? 0.25 : 0) +
@@ -72,8 +92,47 @@ export function extractTransaction(rawText: string): ExtractedTransaction {
     balanceAfter,
     category,
     confidence: Number(confidence.toFixed(2)),
-    rawText
+      rawText
   });
+}
+
+export function createTransactionDrafts(rawText: string, options: ExtractTransactionOptions & { accountLabel?: string } = {}): TransactionDraft[] {
+  return splitTransactionInput(rawText).map((sourceText, index) => {
+    const extracted = extractTransaction(sourceText, options);
+    return {
+      ...extracted,
+      draftId: `draft-${index + 1}`,
+      sourceText,
+      status: reviewStatusForConfidence(extracted.confidence),
+      accountLabel: cleanAccountLabel(options.accountLabel)
+    };
+  });
+}
+
+export function splitTransactionInput(rawText: string): string[] {
+  const normalized = rawText.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
+
+  const blankSeparated = normalized
+    .split(/\n\s*\n+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 8);
+
+  if (blankSeparated.length > 1) return blankSeparated;
+
+  return [normalized];
+}
+
+export function reviewStatusForConfidence(confidence: number): TransactionReviewStatus {
+  return confidence < 0.85 ? "NEEDS_REVIEW" : "SAVED";
+}
+
+export function normalizeForMatching(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function findDate(text: string): DateHit | null {
@@ -151,7 +210,7 @@ function findAmount(text: string): { raw: string; value: number; index: number }
 }
 
 function findBalance(text: string): number | null {
-  const hit = /\b(?:Balance after transaction|Available Balance|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|-)?\s*(?:₹|Rs\.?\s*)?([\d,]+(?:\.\d{2})?)/i.exec(text);
+  const hit = /\b(?:Balance after transaction|Available Balance|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|Rs\.?\s*)?([\d,]+(?:\.\d{2})?)/i.exec(text);
   return hit?.[1] ? parseMoney(hit[1]) : null;
 }
 
@@ -183,8 +242,55 @@ function findCategory(text: string): string | null {
   const labelled = /\bCategory:\s*([A-Za-z][A-Za-z &/-]{1,40})\b/i.exec(text);
   if (labelled?.[1]) return labelled[1].trim();
 
-  const afterBalance = /\b(?:Available Balance|Balance after transaction|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|-)?\s*(?:₹|Rs\.?\s*)?[\d,]+(?:\.\d{2})?\s+([A-Za-z][A-Za-z &/-]{1,40})$/i.exec(text);
+  const afterBalance = /\b(?:Available Balance|Balance after transaction|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|Rs\.?\s*)?[\d,]+(?:\.\d{2})?\s+([A-Za-z][A-Za-z &/-]{1,40})$/i.exec(text);
   return afterBalance?.[1]?.trim() ?? null;
+}
+
+function resolveCategory(description: string, explicitCategory: string | null, options: ExtractTransactionOptions): string | null {
+  const ruleCategory = matchCategoryRule(description, options.categoryRules ?? []);
+  if (ruleCategory) return ruleCategory;
+  if (explicitCategory) return explicitCategory;
+  if (options.enableBuiltInCategories) return builtInCategory(description);
+  return null;
+}
+
+function matchCategoryRule(description: string, rules: CategoryRuleInput[]): string | null {
+  const normalizedDescription = normalizeForMatching(description);
+  const rule = rules.find((candidate) => {
+    const normalizedMatch = normalizeForMatching(candidate.matchText);
+    return normalizedMatch.length > 0 && normalizedDescription.includes(normalizedMatch);
+  });
+
+  return rule?.category.trim() || null;
+}
+
+function builtInCategory(description: string): string | null {
+  const normalized = normalizeForMatching(description);
+  const mappings: CategoryRuleInput[] = [
+    { matchText: "starbucks coffee", category: "Dining" },
+    { matchText: "zomato", category: "Dining" },
+    { matchText: "swiggy instamart", category: "Groceries" },
+    { matchText: "bigbasket", category: "Groceries" },
+    { matchText: "uber", category: "Travel" },
+    { matchText: "ola", category: "Travel" },
+    { matchText: "amazon", category: "Shopping" },
+    { matchText: "myntra", category: "Shopping" },
+    { matchText: "netflix", category: "Entertainment" },
+    { matchText: "bookmyshow", category: "Entertainment" },
+    { matchText: "apollo pharmacy", category: "Health" },
+    { matchText: "salary", category: "Income" },
+    { matchText: "interest credit", category: "Income" },
+    { matchText: "rent", category: "Rent" },
+    { matchText: "credit card payment", category: "Bills" },
+    { matchText: "recharge", category: "Utilities" }
+  ];
+
+  return mappings.find((mapping) => normalized.includes(normalizeForMatching(mapping.matchText)))?.category ?? null;
+}
+
+function cleanAccountLabel(value?: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.slice(0, 60) : "Personal";
 }
 
 function parseMoney(value: string): number {

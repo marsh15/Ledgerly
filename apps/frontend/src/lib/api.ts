@@ -19,3 +19,19 @@ export async function apiFetch<T>(path: string, token: string, init: RequestInit
 
   return response.json() as Promise<T>;
 }
+
+export async function apiText(path: string, token: string): Promise<string> {
+  const response = await fetch(`${apiUrl}${path}`, {
+    headers: {
+      authorization: `Bearer ${token}`
+    },
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(typeof payload.error === "object" ? payload.error.message : payload.error ?? "Request failed");
+  }
+
+  return response.text();
+}

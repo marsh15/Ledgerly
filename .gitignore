@@ -7,3 +7,9 @@ coverage
 *.log
 *.tsbuildinfo
 apps/backend/generated
+.DS_Store
+tmp/
+output/
+.playwright-cli/
+test-results/
+playwright-report/

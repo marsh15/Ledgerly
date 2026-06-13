@@ -10,6 +10,9 @@ export function presentTransaction(transaction: Transaction) {
     balanceAfter: transaction.balanceAfter === null ? null : Number(transaction.balanceAfter),
     category: transaction.category,
     confidence: transaction.confidence,
+    status: transaction.status,
+    accountLabel: transaction.accountLabel,
+    duplicateOfId: transaction.duplicateOfId,
     createdAt: transaction.createdAt.toISOString()
   };
 }

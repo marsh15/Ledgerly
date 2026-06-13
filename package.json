@@ -12,13 +12,15 @@
     "dev:frontend": "npm run dev --workspace @ledgerly/frontend",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "jest --runInBand",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
+    "test:e2e": "playwright test",
     "prisma:generate": "prisma generate --schema apps/backend/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema apps/backend/prisma/schema.prisma",
     "prisma:push": "prisma db push --schema apps/backend/prisma/schema.prisma",
     "seed": "tsx apps/backend/src/seed.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.7",
     "jest": "^29.7.0",
