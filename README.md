@@ -1,93 +1,244 @@
-# ledgerly
+# Ledgerly
 
+Ledgerly is a secure personal finance transaction extraction app built as a fullstack assignment. Authenticated users can paste raw bank transaction text, extract structured data, save it to PostgreSQL, and view only their own tenant-scoped transactions.
 
+The final source-of-truth PRD lives in [docs/PRD.md](docs/PRD.md).
 
-## Getting started
+## Tech Stack
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- Backend: Hono + TypeScript
+- Auth: Better Auth email/password, seven-day sessions, bearer/JWT plugins, organization/team plugin
+- Database: PostgreSQL + Prisma
+- Frontend: Next.js 15 App Router + TypeScript + Server Components
+- Frontend session bridge: Auth.js credentials provider stores the Better Auth bearer token in the Auth.js JWT session
+- UI: Tailwind CSS + shadcn/ui-style primitives
+- Tests: Jest + ts-jest
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Architecture
 
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+```text
+Next.js frontend
+  -> Auth.js credentials session bridge
+  -> Hono backend
+  -> Better Auth verifies identity and organization/team context
+  -> Transaction parser and tenant-scoped service logic
+  -> Prisma
+  -> PostgreSQL
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/my-projects4751524/ledgerly.git
-git branch -M main
-git push -uf origin main
+
+Better Auth is the source of truth for registration, password hashing, login, sessions/tokens, and organization/team membership. Auth.js is only the frontend session bridge used by Next.js pages and client components.
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env
+docker compose up -d postgres
+npm run prisma:generate
+npm run prisma:migrate
+npm run seed
 ```
 
-## Integrate with your tools
+Run backend and frontend in separate terminals:
 
-* [Set up project integrations](https://gitlab.com/my-projects4751524/ledgerly/-/settings/integrations)
+```bash
+npm run dev:backend
+```
 
-## Collaborate with your team
+```bash
+npm run dev:frontend
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Open `http://localhost:3000`.
 
-## Test and Deploy
+## Environment
 
-Use the built-in continuous integration in GitLab.
+`.env.example` includes the required variables:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```bash
+DATABASE_URL="postgresql://ledgerly:ledgerly@localhost:5432/ledgerly?schema=public"
+BETTER_AUTH_SECRET="replace-with-at-least-32-random-characters"
+BETTER_AUTH_URL="http://localhost:4000"
+JWT_SECRET="replace-with-at-least-32-random-characters-if-you-enable-custom-jwt-signing"
+FRONTEND_URL="http://localhost:3000"
+NODE_ENV="development"
+AUTH_SECRET="replace-with-at-least-32-random-characters-for-authjs"
+AUTH_URL="http://localhost:3000"
+FRONTEND_ORIGIN="http://localhost:3000"
+NEXT_PUBLIC_BACKEND_URL="http://localhost:4000"
+NEXT_PUBLIC_API_URL="http://localhost:4000"
+BACKEND_INTERNAL_URL="http://localhost:4000"
+```
 
-***
+`FRONTEND_ORIGIN` and `NEXT_PUBLIC_API_URL` are kept for compatibility; `FRONTEND_URL` and `NEXT_PUBLIC_BACKEND_URL` match the PRD wording.
 
-# Editing this README
+## Commands
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+npm test
+npm run typecheck
+npm run build
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:push
+npm run seed
+```
 
-## Suggestions for a good README
+Use `prisma:migrate` for normal local setup. `prisma:push` is available for quick disposable databases.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## Demo Users
 
-## Name
-Choose a self-explaining name for your project.
+After `npm run seed`:
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+- `asha@example.com` / `Password123!`
+- `rohan@example.com` / `Password123!`
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Each seeded user gets a separate personal organization and team.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## API
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```http
+POST /api/auth/register
+POST /api/auth/login
+POST /api/transactions/extract
+GET /api/transactions?limit=10&cursor=<id>
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+`POST /api/transactions/extract` accepts:
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```json
+{ "text": "raw bank transaction text..." }
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Successful extraction returns:
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```json
+{
+  "transaction": {
+    "id": "transaction_id",
+    "date": "2025-12-11",
+    "description": "STARBUCKS COFFEE MUMBAI",
+    "amount": -420,
+    "type": "DEBIT",
+    "balanceAfter": 18420.5,
+    "category": null,
+    "confidence": 0.95,
+    "createdAt": "2025-12-11T10:00:00.000Z"
+  }
+}
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Transaction listing returns `items` and `nextCursor`. A temporary `transactions` alias is also returned for frontend compatibility.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Error responses use:
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```json
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Authentication required"
+  }
+}
+```
 
-## License
-For open source projects, say how it is licensed.
+## Parser Assumptions
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+The parser is deterministic and does not use an LLM.
+
+Supported dates:
+
+- `11 Dec 2025`
+- `12/11/2025`
+- `2025-12-10`
+
+Slash dates are interpreted as `MM/DD/YYYY`, so `12/11/2025` becomes `2025-12-11`.
+
+Supported money and debit indicators:
+
+- `-420.00`
+- `₹1,250.00 debited`
+- `₹2,999.00 Dr`
+
+Confidence is a completeness score:
+
+- Date found: `+0.25`
+- Amount found: `+0.25`
+- Description found: `+0.20`
+- Debit/credit type found: `+0.15`
+- Balance found: `+0.10`
+- Category found: `+0.05`
+
+## Required Samples
+
+```text
+Date: 11 Dec 2025
+Description: STARBUCKS COFFEE MUMBAI
+Amount: -420.00
+Balance after transaction: 18,420.50
+```
+
+```text
+Uber Ride * Airport Drop
+12/11/2025 -> ₹1,250.00 debited
+Available Balance -> ₹17,170.50
+```
+
+```text
+txn123 2025-12-10 Amazon.in Order #403-1234567-8901234 ₹2,999.00 Dr Bal 14171.50 Shopping
+```
+
+All three are covered by Jest parser tests.
+
+## Auth And Isolation Strategy
+
+Protected transaction routes call Better Auth with the incoming cookie or bearer token, resolve the authenticated user's active organization/team membership, and build Prisma filters from server-side auth context only.
+
+Transaction reads and writes are scoped by both:
+
+- authenticated `userId`
+- authenticated `organizationId`
+
+The backend never trusts `userId`, `organizationId`, or `teamId` from request bodies, query strings, or frontend session display state. If a user tampers with a payload, those fields are ignored because ownership comes from the verified session.
+
+## Cursor Pagination
+
+Transactions are sorted by `createdAt desc, id desc`. The backend fetches `limit + 1` rows, returns the requested page, and returns the last item ID as `nextCursor` when another page exists.
+
+Prisma indexes support tenant-scoped listing and date lookup:
+
+- `userId + createdAt`
+- `organizationId + createdAt`
+- `userId + date`
+- `organizationId + date`
+
+## Optional Postgres RLS
+
+The application enforces isolation in backend queries. An optional PostgreSQL RLS helper is included at `apps/backend/prisma/rls.sql`:
+
+```bash
+psql "$DATABASE_URL" -f apps/backend/prisma/rls.sql
+```
+
+## Demo Checklist
+
+1. Register User A.
+2. Paste and save all three sample transactions.
+3. Show the transaction table with date, description, amount, type, balance, category, and confidence.
+4. Log out.
+5. Register or log in as User B.
+6. Show User B cannot see User A's transactions.
+7. Explain that Better Auth owns auth and tenant membership.
+8. Explain that backend transaction queries derive ownership from the verified session.
+9. Explain deterministic parser logic, MM/DD slash dates, confidence scoring, pagination, and indexes.
+10. Run `npm test` and show the passing parser/isolation tests.
+
+## Known Trade-Offs
+
+- Auth.js is used only as a Next.js session bridge; Better Auth remains the auth source of truth.
+- Parser support is intentionally limited to the assignment formats and nearby variants.
+- The current tests cover parser behavior and tenant filter construction. Stronger follow-up coverage would add route-level tests against a disposable database.
+- Deployment is not included in this local package, but the app is structured for Vercel frontend plus Railway/Render/Fly/Neon/Supabase Postgres backend/database.
+
+## AI Tools Used
+
+ChatGPT/Codex was used for PRD synthesis, implementation, debugging, and documentation drafting. The final code and architectural choices should be reviewed and explainable during the assignment walkthrough.

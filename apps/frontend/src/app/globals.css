@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+}
+
+:root {
+  --background: 42 38% 98%;
+  --foreground: 221 42% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --primary: 164 82% 22%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 160 32% 94%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 42 28% 95%;
+  --muted-foreground: 218 15% 43%;
+  --accent: 38 88% 93%;
+  --accent-foreground: 33 76% 24%;
+  --border: 216 24% 89%;
+  --input: 216 24% 89%;
+  --ring: 164 82% 22%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  text-rendering: geometricPrecision;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.16);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

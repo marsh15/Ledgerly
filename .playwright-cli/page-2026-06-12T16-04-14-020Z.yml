@@ -1,0 +1,24 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]: Sign in
+          - generic [ref=e7]: Continue to your transaction workspace.
+        - generic [ref=e9]:
+          - generic [ref=e10]:
+            - generic [ref=e11]: Email
+            - textbox "Email" [ref=e12]:
+              - /placeholder: asha@example.com
+          - generic [ref=e13]:
+            - generic [ref=e14]: Password
+            - textbox "Password" [ref=e15]
+          - button "Sign in" [ref=e16]
+      - paragraph [ref=e17]:
+        - text: New here?
+        - link "Create an account" [ref=e18] [cursor=pointer]:
+          - /url: /register
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e24] [cursor=pointer]:
+    - img [ref=e25]
+  - alert [ref=e28]

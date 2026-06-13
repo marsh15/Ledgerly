@@ -1,0 +1,133 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - img [ref=e7]
+        - generic [ref=e9]:
+          - heading "Ledgerly" [level=1] [ref=e10]
+          - paragraph [ref=e11]: Private transaction workspace
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - generic [ref=e14]: AD
+          - generic [ref=e15]:
+            - paragraph [ref=e16]: Asha Demo
+            - paragraph [ref=e17]: Signed in
+        - button "Logout" [ref=e18]:
+          - img [ref=e19]
+          - text: Logout
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - img [ref=e28]
+              - text: Extract transactions
+            - generic [ref=e31]: Paste raw text from a bank message, email, or statement excerpt.
+          - generic [ref=e32]: Secure
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - generic [ref=e36]: Raw transaction text
+              - button "Clear" [ref=e37]
+            - textbox "Statement text" [ref=e38]: "Date: 11 Dec 2025 Description: STARBUCKS COFFEE MUMBAI Amount: -420.00 Balance after transaction: 18,420.50"
+            - generic [ref=e39]: 107 characters ready
+          - generic [ref=e41]:
+            - paragraph [ref=e42]: Try a sample
+            - generic [ref=e43]:
+              - button "Statement" [ref=e44]:
+                - img [ref=e45]
+                - text: Statement
+              - button "SMS alert" [ref=e48]:
+                - img [ref=e49]
+                - text: SMS alert
+              - button "Export" [ref=e52]:
+                - img [ref=e53]
+                - text: Export
+          - button "Parse & Save transaction" [ref=e56]:
+            - img [ref=e57]
+            - text: Parse & Save transaction
+          - generic [ref=e59]:
+            - img [ref=e60]
+            - text: Ownership is derived from your verified session, never from pasted text.
+          - generic [ref=e65]:
+            - img [ref=e66]
+            - generic [ref=e69]:
+              - paragraph [ref=e70]: Ready to extract
+              - paragraph [ref=e71]: Paste a transaction snippet or load a sample to begin.
+      - generic [ref=e72]:
+        - generic [ref=e74]:
+          - generic [ref=e75]:
+            - generic [ref=e76]:
+              - img [ref=e77]
+              - text: Transactions
+            - generic [ref=e79]: Cursor-paginated and scoped to your private organization.
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - paragraph [ref=e82]: Saved
+              - paragraph [ref=e83]: "0"
+            - generic [ref=e84]:
+              - paragraph [ref=e85]: Spend
+              - paragraph [ref=e86]: ₹0
+            - generic [ref=e87]:
+              - paragraph [ref=e88]: Confidence
+              - paragraph [ref=e89]: —
+        - generic [ref=e90]:
+          - table [ref=e93]:
+            - rowgroup [ref=e94]:
+              - row "Date Description Amount Type Balance Category Confidence" [ref=e95]:
+                - columnheader "Date" [ref=e96]
+                - columnheader "Description" [ref=e97]
+                - columnheader "Amount" [ref=e98]
+                - columnheader "Type" [ref=e99]
+                - columnheader "Balance" [ref=e100]
+                - columnheader "Category" [ref=e101]
+                - columnheader "Confidence" [ref=e102]
+            - rowgroup [ref=e103]:
+              - row [ref=e104]:
+                - cell [ref=e105]
+                - cell [ref=e107]
+                - cell [ref=e109]
+                - cell [ref=e111]
+                - cell [ref=e113]
+                - cell [ref=e115]
+                - cell [ref=e117]
+              - row [ref=e119]:
+                - cell [ref=e120]
+                - cell [ref=e122]
+                - cell [ref=e124]
+                - cell [ref=e126]
+                - cell [ref=e128]
+                - cell [ref=e130]
+                - cell [ref=e132]
+              - row [ref=e134]:
+                - cell [ref=e135]
+                - cell [ref=e137]
+                - cell [ref=e139]
+                - cell [ref=e141]
+                - cell [ref=e143]
+                - cell [ref=e145]
+                - cell [ref=e147]
+              - row [ref=e149]:
+                - cell [ref=e150]
+                - cell [ref=e152]
+                - cell [ref=e154]
+                - cell [ref=e156]
+                - cell [ref=e158]
+                - cell [ref=e160]
+                - cell [ref=e162]
+              - row [ref=e164]:
+                - cell [ref=e165]
+                - cell [ref=e167]
+                - cell [ref=e169]
+                - cell [ref=e171]
+                - cell [ref=e173]
+                - cell [ref=e175]
+                - cell [ref=e177]
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - img [ref=e181]
+              - text: Only your tenant-scoped records are returned.
+            - button "Load more" [disabled]:
+              - img
+              - text: Load more
+  - region "Notifications alt+T"

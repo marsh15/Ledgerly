@@ -1,0 +1,15 @@
+import type { Transaction } from "@prisma/client";
+
+export function presentTransaction(transaction: Transaction) {
+  return {
+    id: transaction.id,
+    date: transaction.date.toISOString().slice(0, 10),
+    description: transaction.description,
+    type: transaction.type,
+    amount: Number(transaction.amount),
+    balanceAfter: transaction.balanceAfter === null ? null : Number(transaction.balanceAfter),
+    category: transaction.category,
+    confidence: transaction.confidence,
+    createdAt: transaction.createdAt.toISOString()
+  };
+}
