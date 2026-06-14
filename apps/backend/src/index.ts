@@ -23,7 +23,10 @@ export const app = new Hono<{ Variables: Variables }>();
 app.use(
   "*",
   cors({
-    origin: env.frontendOrigin,
+    origin: (origin) => {
+      if (!origin) return env.frontendOrigins[0] ?? "http://localhost:3000";
+      return env.frontendOrigins.includes(origin) ? origin : "";
+    },
     allowHeaders: ["Content-Type", "Authorization", "Cookie"],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     exposeHeaders: ["set-auth-token", "set-auth-jwt", "set-cookie"],
@@ -528,6 +531,7 @@ async function forwardToBetterAuth(source: Request, path: string, body: unknown)
   const url = new URL(path, env.betterAuthUrl);
   const headers = new Headers(source.headers);
   headers.set("content-type", "application/json");
+  headers.set("origin", trustedAuthOrigin(headers.get("origin")));
 
   return auth.handler(
     new Request(url, {
@@ -536,6 +540,11 @@ async function forwardToBetterAuth(source: Request, path: string, body: unknown)
       body: JSON.stringify(body)
     })
   );
+}
+
+function trustedAuthOrigin(origin: string | null): string {
+  if (origin && env.frontendOrigins.includes(origin)) return origin;
+  return env.frontendOrigins[0] ?? "http://localhost:3000";
 }
 
 function withAuthHeaders(source: Response, body: unknown): Response {

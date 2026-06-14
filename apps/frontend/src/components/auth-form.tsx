@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Loader2, LockKeyhole, Mail, UserRound } from "lucide-react";
+import { AlertCircle, Loader2, LockKeyhole, Mail, Play, UserRound } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiUrl } from "@/lib/api";
 
 type AuthFormProps = {
   mode: "login" | "register";
@@ -18,6 +17,7 @@ type AuthFormProps = {
 export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [demoPending, setDemoPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -32,30 +32,10 @@ export function AuthForm({ mode }: AuthFormProps) {
 
     try {
       if (mode === "register") {
-        const response = await fetch(`${apiUrl}/api/auth/register`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, email, password }),
-          credentials: "include"
-        });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({ error: "Registration failed" }));
-          throw new Error(typeof payload.error === "object" ? payload.error.message : payload.error ?? "Registration failed");
-        }
+        await registerAccount({ name, email, password });
       }
 
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false
-      });
-
-      if (result?.error) throw new Error("Invalid email or password");
-
-      toast.success(mode === "register" ? "Account created" : "Signed in");
-      router.push("/");
-      router.refresh();
+      await signInWithCredentials(email, password, mode === "register" ? "Account created" : "Signed in");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong";
       setError(message);
@@ -63,6 +43,53 @@ export function AuthForm({ mode }: AuthFormProps) {
     } finally {
       setPending(false);
     }
+  }
+
+  async function onDemo() {
+    setDemoPending(true);
+    setError(null);
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const email = `demo-${suffix}@ledgerly.demo`;
+    const password = `Demo-${suffix}!`;
+
+    try {
+      await registerAccount({ name: "Demo User", email, password });
+      await signInWithCredentials(email, password, "Demo workspace ready");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start demo";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDemoPending(false);
+    }
+  }
+
+  async function registerAccount(input: { name: string; email: string; password: string }) {
+    const response = await fetch("/api/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({ error: "Registration failed" }));
+      throw new Error(typeof payload.error === "object" ? payload.error.message : payload.error ?? "Registration failed");
+    }
+  }
+
+  async function signInWithCredentials(email: string, password: string, successMessage: string) {
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false
+    });
+
+    if (result?.error) throw new Error("Invalid email or password");
+
+    toast.success(successMessage);
+    router.push("/");
+    router.refresh();
   }
 
   return (
@@ -120,9 +147,13 @@ export function AuthForm({ mode }: AuthFormProps) {
               <span>{error}</span>
             </div>
           ) : null}
-          <Button type="submit" disabled={pending} className="mt-1 h-11">
+          <Button type="submit" disabled={pending || demoPending} className="mt-1 h-11">
             {pending ? <Loader2 data-icon="inline-start" className="size-4 animate-spin" /> : null}
             {mode === "login" ? "Log in" : "Create account"}
+          </Button>
+          <Button type="button" variant="outline" disabled={pending || demoPending} className="h-11" onClick={onDemo}>
+            {demoPending ? <Loader2 data-icon="inline-start" className="size-4 animate-spin" /> : <Play data-icon="inline-start" className="size-4" />}
+            Try demo
           </Button>
         </form>
       </CardContent>
