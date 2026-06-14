@@ -8,7 +8,7 @@ export const auth = betterAuth({
   appName: "Ledgerly",
   secret: env.betterAuthSecret,
   baseURL: env.betterAuthUrl,
-  trustedOrigins: [env.frontendOrigin],
+  trustedOrigins: env.frontendOrigins,
   database: prismaAdapter(prisma, {
     provider: "postgresql"
   }),
