@@ -8,6 +8,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { auth } from "./auth";
 import { prisma, withTenant } from "./db";
+import { demoUsers } from "./demo-users";
 import { env } from "./env";
 import { assertWithinRateLimit } from "./rate-limit";
 import { getTenantScope, ensurePersonalTenant } from "./tenant";
@@ -38,15 +39,15 @@ app.use(
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.post("/api/auth/register", async (c) => {
-  const body = await c.req.json();
+  const body = registerBodySchema.parse(await c.req.json());
   const response = await forwardToBetterAuth(c.req.raw, "/api/auth/sign-up/email", {
-    name: body.name ?? body.email?.split("@")[0] ?? "User",
+    name: body.name || body.email.split("@")[0],
     email: body.email,
     password: body.password
   });
 
   const payload = await response.clone().json().catch(() => null) as AuthPayload | null;
-  if (!response.ok || !payload) return response;
+  if (!response.ok || !payload) return authErrorResponse(response, "Unable to create account. Check your email and password, then try again.");
 
   const user = payload.user ?? payload.data?.user;
   if (user?.id && user.email && user.name) {
@@ -61,13 +62,13 @@ app.post("/api/auth/register", async (c) => {
 });
 
 app.post("/api/auth/login", async (c) => {
-  const body = await c.req.json();
+  const body = loginBodySchema.parse(await c.req.json());
   const response = await forwardToBetterAuth(c.req.raw, "/api/auth/sign-in/email", {
     email: body.email,
     password: body.password
   });
 
-  if (!response.ok) return response;
+  if (!response.ok) return authErrorResponse(response, "Email or password did not match an account.");
   const payload = await response.clone().json().catch(() => null) as AuthPayload | null;
   const user = payload?.user ?? payload?.data?.user;
   if (user?.id && user.email && user.name) {
@@ -80,6 +81,12 @@ app.post("/api/auth/login", async (c) => {
     jwt: response.headers.get("set-auth-jwt")
   });
 });
+
+app.get("/api/auth/demo-users", (c) =>
+  c.json({
+    users: demoUsers.map(({ name, email }) => ({ name, email }))
+  })
+);
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
@@ -527,6 +534,34 @@ type AuthPayload = {
   data?: { user?: { id: string; email: string; name: string } };
 };
 
+const emailSchema = z
+  .string()
+  .trim()
+  .email("Use a valid email address.")
+  .toLowerCase();
+const passwordSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters.")
+  .max(128, "Password must be 128 characters or fewer.");
+
+const registerBodySchema = z.object({
+  name: z.preprocess(
+    (value) => {
+      if (typeof value !== "string") return undefined;
+      const trimmed = value.trim();
+      return trimmed || undefined;
+    },
+    z.string().max(80, "Name must be 80 characters or fewer.").optional()
+  ),
+  email: emailSchema,
+  password: passwordSchema
+});
+
+const loginBodySchema = z.object({
+  email: emailSchema,
+  password: passwordSchema
+});
+
 async function forwardToBetterAuth(source: Request, path: string, body: unknown): Promise<Response> {
   const url = new URL(path, env.betterAuthUrl);
   const headers = new Headers(source.headers);
@@ -540,6 +575,37 @@ async function forwardToBetterAuth(source: Request, path: string, body: unknown)
       body: JSON.stringify(body)
     })
   );
+}
+
+async function authErrorResponse(source: Response, fallbackMessage: string): Promise<Response> {
+  const payload = await source.clone().json().catch(() => null) as { error?: unknown; message?: unknown } | null;
+  const upstreamMessage =
+    typeof payload?.error === "string"
+      ? payload.error
+      : typeof payload?.error === "object" && payload.error && "message" in payload.error && typeof payload.error.message === "string"
+        ? payload.error.message
+        : typeof payload?.message === "string"
+          ? payload.message
+          : fallbackMessage;
+  const message = friendlyAuthMessage(upstreamMessage, fallbackMessage);
+
+  return new Response(JSON.stringify({ error: { code: "AUTH_ERROR", message } }), {
+    status: source.status,
+    headers: {
+      "content-type": "application/json"
+    }
+  });
+}
+
+function friendlyAuthMessage(message: string, fallbackMessage: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("already") || normalized.includes("exist")) {
+    return "This email is already registered. Sign in with that password, or use a different email.";
+  }
+  if (normalized.includes("password")) {
+    return message;
+  }
+  return fallbackMessage;
 }
 
 function trustedAuthOrigin(origin: string | null): string {
