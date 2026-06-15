@@ -53,7 +53,13 @@ export function AuthForm({ mode }: AuthFormProps) {
     });
 
     if (result?.error) {
-      throw new Error(input.mode === "register" ? "Unable to create account. Check your email and password, then try again." : "Email or password did not match an account.");
+      if (result.code === "auth_backend_unconfigured") {
+        throw new Error("Authentication is not configured for this deployment. Please set the backend URL and try again.");
+      }
+      if (result.code === "auth_backend_unreachable") {
+        throw new Error("Ledgerly could not reach the authentication server. Please try again in a moment.");
+      }
+      throw new Error(input.mode === "register" ? "Unable to create account. This email may already be registered." : "Email or password did not match an account.");
     }
 
     toast.success(successMessage);
