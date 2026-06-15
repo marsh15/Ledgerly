@@ -8,7 +8,6 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { auth } from "./auth";
 import { prisma, withTenant } from "./db";
-import { demoUsers } from "./demo-users";
 import { env } from "./env";
 import { assertWithinRateLimit } from "./rate-limit";
 import { getTenantScope, ensurePersonalTenant } from "./tenant";
@@ -56,7 +55,7 @@ app.post("/api/auth/register", async (c) => {
 
   return withAuthHeaders(response, {
     user,
-    token: response.headers.get("set-auth-token"),
+    token: authTokenFrom(response, payload),
     jwt: response.headers.get("set-auth-jwt")
   });
 });
@@ -77,16 +76,10 @@ app.post("/api/auth/login", async (c) => {
 
   return withAuthHeaders(response, {
     user,
-    token: response.headers.get("set-auth-token"),
+    token: authTokenFrom(response, payload),
     jwt: response.headers.get("set-auth-jwt")
   });
 });
-
-app.get("/api/auth/demo-users", (c) =>
-  c.json({
-    users: demoUsers.map(({ name, email }) => ({ name, email }))
-  })
-);
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
@@ -531,7 +524,12 @@ function csvCell(value: string): string {
 
 type AuthPayload = {
   user?: { id: string; email: string; name: string };
-  data?: { user?: { id: string; email: string; name: string } };
+  token?: string | null;
+  data?: {
+    user?: { id: string; email: string; name: string };
+    token?: string | null;
+    session?: { token?: string | null };
+  };
 };
 
 const emailSchema = z
@@ -611,6 +609,10 @@ function friendlyAuthMessage(message: string, fallbackMessage: string): string {
 function trustedAuthOrigin(origin: string | null): string {
   if (origin && env.frontendOrigins.includes(origin)) return origin;
   return env.frontendOrigins[0] ?? "http://localhost:3000";
+}
+
+function authTokenFrom(source: Response, payload: AuthPayload | null): string | null {
+  return source.headers.get("set-auth-token") ?? payload?.token ?? payload?.data?.token ?? payload?.data?.session?.token ?? null;
 }
 
 function withAuthHeaders(source: Response, body: unknown): Response {
