@@ -48,14 +48,16 @@ app.post("/api/auth/register", async (c) => {
   const payload = await response.clone().json().catch(() => null) as AuthPayload | null;
   if (!response.ok || !payload) return authErrorResponse(response, "Unable to create account. Check your email and password, then try again.");
 
-  const user = payload.user ?? payload.data?.user;
-  if (user?.id && user.email && user.name) {
-    await ensurePersonalTenant({ id: user.id, email: user.email, name: user.name });
+  const authResult = authResultFrom(response, payload);
+  if (!authResult) return malformedAuthResponse("Registration succeeded, but Ledgerly could not start a session.");
+
+  if (authResult.user.id && authResult.user.email && authResult.user.name) {
+    await ensurePersonalTenant({ id: authResult.user.id, email: authResult.user.email, name: authResult.user.name });
   }
 
   return withAuthHeaders(response, {
-    user,
-    token: authTokenFrom(response, payload),
+    user: authResult.user,
+    token: authResult.token,
     jwt: response.headers.get("set-auth-jwt")
   });
 });
@@ -69,14 +71,16 @@ app.post("/api/auth/login", async (c) => {
 
   if (!response.ok) return authErrorResponse(response, "Email or password did not match an account.");
   const payload = await response.clone().json().catch(() => null) as AuthPayload | null;
-  const user = payload?.user ?? payload?.data?.user;
-  if (user?.id && user.email && user.name) {
-    await ensurePersonalTenant({ id: user.id, email: user.email, name: user.name });
+  const authResult = authResultFrom(response, payload);
+  if (!authResult) return malformedAuthResponse("Ledgerly could not start a session for this account.");
+
+  if (authResult.user.id && authResult.user.email && authResult.user.name) {
+    await ensurePersonalTenant({ id: authResult.user.id, email: authResult.user.email, name: authResult.user.name });
   }
 
   return withAuthHeaders(response, {
-    user,
-    token: authTokenFrom(response, payload),
+    user: authResult.user,
+    token: authResult.token,
     jwt: response.headers.get("set-auth-jwt")
   });
 });
@@ -525,6 +529,7 @@ function csvCell(value: string): string {
 type AuthPayload = {
   user?: { id: string; email: string; name: string };
   token?: string | null;
+  session?: { token?: string | null };
   data?: {
     user?: { id: string; email: string; name: string };
     token?: string | null;
@@ -612,7 +617,24 @@ function trustedAuthOrigin(origin: string | null): string {
 }
 
 function authTokenFrom(source: Response, payload: AuthPayload | null): string | null {
-  return source.headers.get("set-auth-token") ?? payload?.token ?? payload?.data?.token ?? payload?.data?.session?.token ?? null;
+  return source.headers.get("set-auth-token") ?? payload?.token ?? payload?.session?.token ?? payload?.data?.token ?? payload?.data?.session?.token ?? null;
+}
+
+function authResultFrom(source: Response, payload: AuthPayload | null): { user: { id: string; email: string; name: string }; token: string } | null {
+  const user = payload?.user ?? payload?.data?.user ?? null;
+  const token = authTokenFrom(source, payload);
+  if (!user?.id || !user.email || !user.name || !token) return null;
+  return { user, token };
+}
+
+function malformedAuthResponse(message: string): Response {
+  console.error("Better Auth returned an incomplete successful auth payload.");
+  return new Response(JSON.stringify({ error: { code: "AUTH_SESSION_ERROR", message } }), {
+    status: 502,
+    headers: {
+      "content-type": "application/json"
+    }
+  });
 }
 
 function withAuthHeaders(source: Response, body: unknown): Response {

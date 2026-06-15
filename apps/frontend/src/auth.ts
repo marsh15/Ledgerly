@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -21,8 +21,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const backendInternalUrl =
           process.env.BACKEND_INTERNAL_URL ??
           process.env.NEXT_PUBLIC_BACKEND_URL ??
-          process.env.NEXT_PUBLIC_API_URL ??
-          "http://localhost:4000";
+          process.env.NEXT_PUBLIC_API_URL;
         const frontendOrigin =
           process.env.AUTH_URL ??
           process.env.FRONTEND_URL ??
@@ -37,36 +36,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             ? { name: name || email.split("@")[0], email, password }
             : { email, password };
 
-        let response = await fetch(`${backendInternalUrl}${authPath}`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            origin: frontendOrigin
-          },
-          body: JSON.stringify(body)
-        });
-
-        let failedRegisterMessage = "";
-        if (!response.ok && mode === "register") {
-          failedRegisterMessage = await response.clone().text().catch(() => "");
-          if (isAlreadyRegisteredMessage(failedRegisterMessage)) {
-            response = await fetch(`${backendInternalUrl}/api/auth/login`, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                origin: frontendOrigin
-              },
-              body: JSON.stringify({ email, password })
-            });
-          }
+        if (!backendInternalUrl) {
+          console.error("Backend credential auth is not configured. Set BACKEND_INTERNAL_URL or NEXT_PUBLIC_BACKEND_URL.");
+          throw new BackendUnconfiguredError();
         }
 
+        const response = await callBackendAuth(`${backendInternalUrl}${authPath}`, body, frontendOrigin);
+
         if (!response.ok) {
-          const message = failedRegisterMessage || (await response.text().catch(() => ""));
+          const message = await response.text().catch(() => "");
           console.error("Backend credential auth failed", {
             mode,
             status: response.status,
-            backendInternalUrl,
             message
           });
           return null;
@@ -114,7 +95,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   }
 });
 
-function isAlreadyRegisteredMessage(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return normalized.includes("already") || normalized.includes("exist");
+async function callBackendAuth(url: string, body: unknown, frontendOrigin: string): Promise<Response> {
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: frontendOrigin
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    console.error("Backend credential auth request failed", {
+      message: error instanceof Error ? error.message : "Unknown network error"
+    });
+    throw new BackendUnreachableError();
+  }
+}
+
+class BackendUnconfiguredError extends CredentialsSignin {
+  code = "auth_backend_unconfigured";
+}
+
+class BackendUnreachableError extends CredentialsSignin {
+  code = "auth_backend_unreachable";
 }
