@@ -14,10 +14,15 @@ type AuthFormProps = {
   mode: "login" | "register";
 };
 
+const demoUsers = [
+  { name: "Asha Demo", email: "asha@example.com", password: "Password123!" },
+  { name: "Rohan Demo", email: "rohan@example.com", password: "Password123!" }
+];
+
 export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
-  const [demoPending, setDemoPending] = useState(false);
+  const [demoPending, setDemoPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -26,13 +31,19 @@ export function AuthForm({ mode }: AuthFormProps) {
     setError(null);
 
     const form = new FormData(event.currentTarget);
-    const email = String(form.get("email"));
+    const email = normalizeEmail(String(form.get("email")));
     const password = String(form.get("password"));
-    const name = String(form.get("name") || email.split("@")[0]);
+    const name = String(form.get("name") || email.split("@")[0]).trim();
 
     try {
       if (mode === "register") {
-        await registerAccount({ name, email, password });
+        try {
+          await registerAccount({ name, email, password });
+        } catch (error) {
+          if (!isAlreadyRegisteredError(error)) throw error;
+          await signInWithCredentials(email, password, "Signed in");
+          return;
+        }
       }
 
       await signInWithCredentials(email, password, mode === "register" ? "Account created" : "Signed in");
@@ -45,23 +56,19 @@ export function AuthForm({ mode }: AuthFormProps) {
     }
   }
 
-  async function onDemo() {
-    setDemoPending(true);
+  async function onDemo(email: string, password: string) {
+    const normalizedEmail = normalizeEmail(email);
+    setDemoPending(normalizedEmail);
     setError(null);
 
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const email = `demo-${suffix}@ledgerly.demo`;
-    const password = `Demo-${suffix}!`;
-
     try {
-      await registerAccount({ name: "Demo User", email, password });
-      await signInWithCredentials(email, password, "Demo workspace ready");
+      await signInWithCredentials(normalizedEmail, password, "Demo workspace ready");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not start demo";
+      const message = error instanceof Error ? error.message : "Demo account is not ready. Run npm run seed, then try again.";
       setError(message);
       toast.error(message);
     } finally {
-      setDemoPending(false);
+      setDemoPending(null);
     }
   }
 
@@ -74,18 +81,18 @@ export function AuthForm({ mode }: AuthFormProps) {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({ error: "Registration failed" }));
-      throw new Error(typeof payload.error === "object" ? payload.error.message : payload.error ?? "Registration failed");
+      throw new Error(errorMessage(payload, "Unable to create account. Check your email and password, then try again."));
     }
   }
 
   async function signInWithCredentials(email: string, password: string, successMessage: string) {
     const result = await signIn("credentials", {
-      email,
+      email: normalizeEmail(email),
       password,
       redirect: false
     });
 
-    if (result?.error) throw new Error("Invalid email or password");
+    if (result?.error) throw new Error("Email or password did not match an account.");
 
     toast.success(successMessage);
     router.push("/");
@@ -147,16 +154,52 @@ export function AuthForm({ mode }: AuthFormProps) {
               <span>{error}</span>
             </div>
           ) : null}
-          <Button type="submit" disabled={pending || demoPending} className="mt-1 h-11">
+          <Button type="submit" disabled={pending || Boolean(demoPending)} className="mt-1 h-11">
             {pending ? <Loader2 data-icon="inline-start" className="size-4 animate-spin" /> : null}
             {mode === "login" ? "Log in" : "Create account"}
           </Button>
-          <Button type="button" variant="outline" disabled={pending || demoPending} className="h-11" onClick={onDemo}>
-            {demoPending ? <Loader2 data-icon="inline-start" className="size-4 animate-spin" /> : <Play data-icon="inline-start" className="size-4" />}
-            Try demo
-          </Button>
+          {mode === "login" ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {demoUsers.map((user) => (
+                <Button
+                  key={user.email}
+                  type="button"
+                  variant="outline"
+                  disabled={pending || Boolean(demoPending)}
+                  className="h-11"
+                  onClick={() => onDemo(user.email, user.password)}
+                >
+                  {demoPending === user.email ? (
+                    <Loader2 data-icon="inline-start" className="size-4 animate-spin" />
+                  ) : (
+                    <Play data-icon="inline-start" className="size-4" />
+                  )}
+                  {user.name}
+                </Button>
+              ))}
+            </div>
+          ) : null}
         </form>
       </CardContent>
     </Card>
   );
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function isAlreadyRegisteredError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes("already registered");
+}
+
+function errorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  if ("error" in payload) {
+    const { error } = payload;
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  }
+  if ("message" in payload && typeof payload.message === "string") return payload.message;
+  return fallback;
 }

@@ -25,7 +25,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           process.env.AUTH_URL ??
           process.env.FRONTEND_URL ??
           "http://localhost:3000";
-        const email = String(credentials?.email ?? "").trim();
+        const email = String(credentials?.email ?? "").trim().toLowerCase();
         const password = String(credentials?.password ?? "");
 
         const response = await fetch(`${backendInternalUrl}/api/auth/login`, {

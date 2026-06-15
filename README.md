@@ -73,6 +73,16 @@ BACKEND_INTERNAL_URL="http://localhost:4000"
 
 `FRONTEND_ORIGIN` and `NEXT_PUBLIC_API_URL` are kept for compatibility; `FRONTEND_URL` and `NEXT_PUBLIC_BACKEND_URL` match the PRD wording.
 
+For production deployment, set the URL values to the deployed origins instead of localhost:
+
+- `BETTER_AUTH_URL`: public backend API origin, for example `https://api.yourdomain.com`
+- `FRONTEND_URL`, `AUTH_URL`, and `FRONTEND_ORIGIN`: public frontend origin, for example `https://yourdomain.com`
+- `FRONTEND_ORIGINS`: comma-separated frontend origins if you deploy preview/staging and production frontends
+- `NEXT_PUBLIC_BACKEND_URL` and `NEXT_PUBLIC_API_URL`: public backend API origin used by the browser
+- `BACKEND_INTERNAL_URL`: backend origin reachable from the frontend server runtime
+
+Email/password registration is open to any user with a valid email address and an 8+ character password. New users receive a personal workspace during registration or first login. The demo users remain available after seeding.
+
 ## Commands
 
 ```bash
