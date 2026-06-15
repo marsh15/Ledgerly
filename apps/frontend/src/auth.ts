@@ -12,6 +12,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: {
+        mode: {},
+        name: {},
         email: {},
         password: {}
       },
@@ -25,21 +27,44 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           process.env.AUTH_URL ??
           process.env.FRONTEND_URL ??
           "http://localhost:3000";
+        const mode = String(credentials?.mode ?? "login") === "register" ? "register" : "login";
+        const name = String(credentials?.name ?? "").trim();
         const email = String(credentials?.email ?? "").trim().toLowerCase();
         const password = String(credentials?.password ?? "");
+        const authPath = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+        const body =
+          mode === "register"
+            ? { name: name || email.split("@")[0], email, password }
+            : { email, password };
 
-        const response = await fetch(`${backendInternalUrl}/api/auth/login`, {
+        let response = await fetch(`${backendInternalUrl}${authPath}`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
             origin: frontendOrigin
           },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify(body)
         });
 
+        let failedRegisterMessage = "";
+        if (!response.ok && mode === "register") {
+          failedRegisterMessage = await response.clone().text().catch(() => "");
+          if (isAlreadyRegisteredMessage(failedRegisterMessage)) {
+            response = await fetch(`${backendInternalUrl}/api/auth/login`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                origin: frontendOrigin
+              },
+              body: JSON.stringify({ email, password })
+            });
+          }
+        }
+
         if (!response.ok) {
-          const message = await response.text().catch(() => "");
-          console.error("Backend credential login failed", {
+          const message = failedRegisterMessage || (await response.text().catch(() => ""));
+          console.error("Backend credential auth failed", {
+            mode,
             status: response.status,
             backendInternalUrl,
             message
@@ -88,3 +113,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }
   }
 });
+
+function isAlreadyRegisteredMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("already") || normalized.includes("exist");
+}

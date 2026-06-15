@@ -37,7 +37,6 @@ cp .env.example .env
 docker compose up -d postgres
 npm run prisma:generate
 npm run prisma:migrate
-npm run seed
 ```
 
 Run backend and frontend in separate terminals:
@@ -81,7 +80,7 @@ For production deployment, set the URL values to the deployed origins instead of
 - `NEXT_PUBLIC_BACKEND_URL` and `NEXT_PUBLIC_API_URL`: public backend API origin used by the browser
 - `BACKEND_INTERNAL_URL`: backend origin reachable from the frontend server runtime
 
-Email/password registration is open to any user with a valid email address and an 8+ character password. New users receive a personal workspace during registration or first login. The demo users remain available after seeding.
+Email/password registration is open to any user with a valid email address and an 8+ character password. New users receive a personal workspace during registration or first login.
 
 ## Commands
 
@@ -93,19 +92,9 @@ npm run build
 npm run prisma:generate
 npm run prisma:migrate
 npm run prisma:push
-npm run seed
 ```
 
 Use `prisma:migrate` for normal local setup. `prisma:push` is available for quick disposable databases.
-
-## Demo Users
-
-After `npm run seed`:
-
-- `asha@example.com` / `Password123!`
-- `rohan@example.com` / `Password123!`
-
-Each seeded user gets a separate personal organization and team.
 
 ## API
 
@@ -353,7 +342,7 @@ For databases created before the migration was added, the same policy SQL is ava
 psql "$DATABASE_URL" -f apps/backend/prisma/rls.sql
 ```
 
-## Demo Checklist
+## Verification Checklist
 
 1. Register User A.
 2. Paste and save all three sample transactions.
