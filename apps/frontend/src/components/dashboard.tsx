@@ -44,6 +44,7 @@ type Transaction = {
   description: string;
   type: TransactionType;
   amount: number;
+  currencyCode: string;
   balanceAfter: number | null;
   category: string | null;
   confidence: number;
@@ -75,6 +76,8 @@ type CategoryRule = {
 
 type AnalyticsSummary = {
   totals: { spend: number; income: number; net: number; debitCount: number; creditCount: number };
+  primaryCurrencyCode: string;
+  currencyBreakdown: Array<{ currencyCode: string; spend: number; income: number; net: number; count: number }>;
   monthlySeries: Array<{ month: string; spend: number; income: number; net: number; count: number }>;
   categoryTotals: Array<{ category: string; spend: number; income: number; count: number }>;
   merchantTotals: Array<{ merchant: string; spend: number; income: number; count: number }>;
@@ -86,6 +89,7 @@ type AnalyticsSummary = {
 type SubscriptionCandidate = {
   merchant: string;
   amount: number;
+  currencyCode: string;
   cadence: string;
   lastChargeDate: string;
   confidence: number;
@@ -634,7 +638,7 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:flex">
                   <Stat label="Visible" value={transactions.length.toLocaleString("en-IN")} />
-                  <Stat label="Spend" value={`₹${totalSpend.toLocaleString("en-IN")}`} />
+                  <Stat label="Spend" value={formatMoney(totalSpend, analytics?.primaryCurrencyCode, false)} />
                   <Stat label="Confidence" value={averageConfidence === null ? "--" : `${averageConfidence}%`} />
                   <Stat label="Review" value={needsReviewCount.toLocaleString("en-IN")} />
                 </div>
@@ -699,11 +703,11 @@ export function Dashboard({ token, userName }: { token: string; userName: string
               <div className="grid gap-3 px-4 md:grid-cols-2">
                 <InsightList
                   title="Category spend"
-                  items={(analytics?.categoryTotals ?? []).slice(0, 5).map((item) => ({ label: item.category, value: `₹${Math.round(item.spend).toLocaleString("en-IN")}` }))}
+                  items={(analytics?.categoryTotals ?? []).slice(0, 5).map((item) => ({ label: item.category, value: formatMoney(Math.round(item.spend), analytics?.primaryCurrencyCode, false) }))}
                 />
                 <InsightList
                   title="Merchant trends"
-                  items={(analytics?.merchantTotals ?? []).slice(0, 5).map((item) => ({ label: item.merchant, value: `₹${Math.round(item.spend).toLocaleString("en-IN")}` }))}
+                  items={(analytics?.merchantTotals ?? []).slice(0, 5).map((item) => ({ label: item.merchant, value: formatMoney(Math.round(item.spend), analytics?.primaryCurrencyCode, false) }))}
                 />
               </div>
 
@@ -748,13 +752,13 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                           {transaction.duplicateOfId ? <p className="text-xs text-amber-700">Possible duplicate</p> : null}
                         </TableCell>
                         <TableCell className={`text-right font-mono font-semibold ${transaction.amount < 0 ? "text-foreground" : "text-primary"}`}>
-                          {formatMoney(transaction.amount)}
+                          {formatMoney(transaction.amount, transaction.currencyCode)}
                         </TableCell>
                         <TableCell>
                           <TypeBadge type={transaction.type} />
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono text-muted-foreground">
-                          {transaction.balanceAfter === null ? "Not found" : formatMoney(transaction.balanceAfter, false)}
+                          {transaction.balanceAfter === null ? "Not found" : formatMoney(transaction.balanceAfter, transaction.currencyCode, false)}
                         </TableCell>
                         <TableCell>{transaction.category ? <CategoryBadge value={transaction.category} /> : <span className="text-muted-foreground">None</span>}</TableCell>
                         <TableCell>
@@ -847,6 +851,14 @@ function DraftEditor({
         </Field>
         <Field label="Amount">
           <Input type="number" step="0.01" value={draft.amount} onChange={(event) => onChange(index, { amount: Number(event.target.value) })} />
+        </Field>
+        <Field label="Currency">
+          <Select value={draft.currencyCode} onChange={(value) => onChange(index, { currencyCode: value })}>
+            <option value="INR">INR</option>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+          </Select>
         </Field>
         <Field label="Balance">
           <Input
@@ -947,7 +959,7 @@ function AnalyticsCharts({ summary, loading }: { summary: AnalyticsSummary | und
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} width={48} />
-                <Tooltip formatter={(value) => formatMoney(Number(value), false)} />
+                <Tooltip formatter={(value) => formatMoney(Number(value), summary?.primaryCurrencyCode, false)} />
                 <Bar dataKey="spend" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="income" fill="#0f766e" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -961,7 +973,7 @@ function AnalyticsCharts({ summary, loading }: { summary: AnalyticsSummary | und
                     <Cell key={entry.category} fill={chartColors[index % chartColors.length] ?? "#047857"} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => formatMoney(Number(value), false)} />
+                <Tooltip formatter={(value) => formatMoney(Number(value), summary?.primaryCurrencyCode, false)} />
               </RechartsPieChart>
             </ResponsiveContainer>
           </div>
@@ -996,7 +1008,7 @@ function SubscriptionsPanel({ subscriptions, loading }: { subscriptions: Subscri
                 </p>
               </div>
               <div className="text-left sm:text-right">
-                <p className="font-mono font-semibold">{formatMoney(-item.amount)}</p>
+                <p className="font-mono font-semibold">{formatMoney(-item.amount, item.currencyCode)}</p>
                 <p className="text-xs text-primary">{Math.round(item.confidence * 100)}% confidence</p>
               </div>
             </div>
@@ -1193,7 +1205,17 @@ function getInitials(name: string): string {
   );
 }
 
-function formatMoney(value: number, showSign = true): string {
+function formatMoney(value: number, currencyCode = "INR", showSign = true): string {
   const prefix = showSign ? (value < 0 ? "-" : "+") : "";
-  return `${prefix}₹${Math.abs(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const locale = currencyCode === "INR" ? "en-IN" : "en-US";
+  const symbol = currencySymbol(currencyCode);
+  return `${prefix}${symbol}${Math.abs(value).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function currencySymbol(currencyCode: string): string {
+  if (currencyCode === "INR") return "₹";
+  if (currencyCode === "USD") return "$";
+  if (currencyCode === "EUR") return "€";
+  if (currencyCode === "GBP") return "£";
+  return `${currencyCode} `;
 }

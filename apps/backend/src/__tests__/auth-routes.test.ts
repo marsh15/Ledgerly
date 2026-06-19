@@ -203,6 +203,7 @@ function draft(overrides: Partial<{
     description: overrides.description ?? "ROUTE TEST COFFEE",
     type: "DEBIT",
     amount: -420,
+    currencyCode: "INR",
     balanceAfter: 18420.5,
     category: "Dining",
     confidence: 1,

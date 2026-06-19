@@ -7,6 +7,7 @@ type TenantDb = Prisma.TransactionClient;
 export type SubscriptionCandidate = {
   merchant: string;
   amount: number;
+  currencyCode: string;
   cadence: "monthly" | "quarterly" | "weekly";
   lastChargeDate: string;
   confidence: number;
@@ -28,8 +29,9 @@ export function detectSubscriptionCandidates(rows: Transaction[]): SubscriptionC
   for (const row of rows) {
     const merchant = normalizeMerchant(row.description);
     if (!merchant || Number(row.amount) >= 0) continue;
+    const currencyCode = cleanCurrencyCode(row.currencyCode);
     const amountBand = Math.round(Math.abs(Number(row.amount)) / 25) * 25;
-    const key = `${merchant}:${amountBand}`;
+    const key = `${merchant}:${currencyCode}:${amountBand}`;
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
 
@@ -52,6 +54,7 @@ export function detectSubscriptionCandidates(rows: Transaction[]): SubscriptionC
     candidates.push({
       merchant: normalizeMerchant(last.description),
       amount: Math.round(averageAmount * 100) / 100,
+      currencyCode: cleanCurrencyCode(last.currencyCode),
       cadence,
       lastChargeDate: last.date.toISOString().slice(0, 10),
       confidence,
@@ -60,6 +63,10 @@ export function detectSubscriptionCandidates(rows: Transaction[]): SubscriptionC
   }
 
   return candidates.sort((a, b) => b.confidence - a.confidence || b.amount - a.amount).slice(0, 12);
+}
+
+function cleanCurrencyCode(value?: string | null): string {
+  return value && /^[A-Z]{3}$/.test(value) ? value : "INR";
 }
 
 function normalizeMerchant(description: string): string {

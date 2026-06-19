@@ -12,6 +12,8 @@ export type AnalyticsSummary = {
     debitCount: number;
     creditCount: number;
   };
+  primaryCurrencyCode: string;
+  currencyBreakdown: Array<{ currencyCode: string; spend: number; income: number; net: number; count: number }>;
   monthlySeries: Array<{ month: string; spend: number; income: number; net: number; count: number }>;
   categoryTotals: Array<{ category: string; spend: number; income: number; count: number }>;
   merchantTotals: Array<{ merchant: string; spend: number; income: number; count: number }>;
@@ -35,6 +37,7 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
   const monthly = new Map<string, { month: string; spend: number; income: number; net: number; count: number }>();
   const categories = new Map<string, { category: string; spend: number; income: number; count: number }>();
   const merchants = new Map<string, { merchant: string; spend: number; income: number; count: number }>();
+  const currencies = new Map<string, { currencyCode: string; spend: number; income: number; net: number; count: number }>();
   let duplicateCount = 0;
   let reviewCount = 0;
 
@@ -47,6 +50,7 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     const month = row.date.toISOString().slice(0, 7);
     const category = row.category || "Uncategorized";
     const merchant = merchantFromDescription(row.description);
+    const currencyCode = cleanCurrencyCode(row.currencyCode);
 
     totals.spend += spend;
     totals.income += income;
@@ -74,10 +78,21 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     merchantBucket.income += income;
     merchantBucket.count += 1;
     merchants.set(merchant, merchantBucket);
+
+    const currencyBucket = currencies.get(currencyCode) ?? { currencyCode, spend: 0, income: 0, net: 0, count: 0 };
+    currencyBucket.spend += spend;
+    currencyBucket.income += income;
+    currencyBucket.net += income - spend;
+    currencyBucket.count += 1;
+    currencies.set(currencyCode, currencyBucket);
   }
+
+  const currencyBreakdown = [...currencies.values()].sort((a, b) => b.count - a.count || b.spend - a.spend).map(roundMoneyObject);
 
   return {
     totals: roundMoneyObject(totals),
+    primaryCurrencyCode: currencyBreakdown[0]?.currencyCode ?? "INR",
+    currencyBreakdown,
     monthlySeries: [...monthly.values()].map(roundMoneyObject),
     categoryTotals: [...categories.values()].sort((a, b) => b.spend - a.spend).slice(0, 12).map(roundMoneyObject),
     merchantTotals: [...merchants.values()].sort((a, b) => b.spend - a.spend || b.count - a.count).slice(0, 12).map(roundMoneyObject),
@@ -85,6 +100,10 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     reviewCount,
     transactionCount: rows.length
   };
+}
+
+function cleanCurrencyCode(value?: string | null): string {
+  return value && /^[A-Z]{3}$/.test(value) ? value : "INR";
 }
 
 function merchantFromDescription(description: string): string {

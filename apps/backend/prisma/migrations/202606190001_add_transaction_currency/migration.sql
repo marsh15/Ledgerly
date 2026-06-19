@@ -1,0 +1,1 @@
+ALTER TABLE "transaction" ADD COLUMN "currencyCode" TEXT NOT NULL DEFAULT 'INR';

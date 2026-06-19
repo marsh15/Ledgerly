@@ -36,17 +36,26 @@ export async function generateSpendingInsights(input: {
   }
 
   const client = new OpenAI({ apiKey: env.openaiApiKey });
+  const currencyContext = buildCurrencyContext(input.summary);
   const response = await client.responses.create({
     model: env.openaiModel,
     input: [
       {
         role: "system",
-        content: "You are Ledgerly's private finance analyst. Use only the aggregate JSON supplied. Never claim access to raw transaction text, SMS content, account numbers, or user identity."
+        content: [
+          "You are Ledgerly's private finance analyst.",
+          "Use only the aggregate JSON supplied.",
+          "Never claim access to raw transaction text, SMS content, account numbers, or user identity.",
+          "Money formatting is mandatory: use the supplied currencyContext, never default to dollars.",
+          "If all data uses one currency, format every monetary value with that currency symbol.",
+          "If multiple currencies are present, do not convert or add them together in prose; name the currency for each monetary amount."
+        ].join(" ")
       },
       {
         role: "user",
         content: JSON.stringify({
           context: input.context ?? {},
+          currencyContext,
           aggregateSummary: input.summary,
           recurringCandidates: input.subscriptions
         })
@@ -83,7 +92,47 @@ export async function generateSpendingInsights(input: {
   });
 
   const parsed = insightResponseSchema.parse(JSON.parse(response.output_text));
-  return parsed.insights;
+  return normalizeInsightCurrency(parsed.insights, currencyContext);
 }
 
 export class InsightConfigError extends Error {}
+
+function buildCurrencyContext(summary: AnalyticsSummary) {
+  const currencies = summary.currencyBreakdown.map((item) => ({
+    currencyCode: item.currencyCode,
+    symbol: currencySymbol(item.currencyCode),
+    example: `${currencySymbol(item.currencyCode)}1,234.56`,
+    count: item.count
+  }));
+
+  return {
+    primaryCurrencyCode: summary.primaryCurrencyCode,
+    primarySymbol: currencySymbol(summary.primaryCurrencyCode),
+    isMixedCurrency: currencies.length > 1,
+    currencies,
+    instruction:
+      currencies.length > 1
+        ? "This filtered dataset has multiple currencies. Do not convert or combine currencies in prose. Format each amount with its own currency symbol and code when needed."
+        : `Format all monetary values with ${currencySymbol(summary.primaryCurrencyCode)} for ${summary.primaryCurrencyCode}. Do not use $.`
+  };
+}
+
+function currencySymbol(currencyCode: string): string {
+  if (currencyCode === "INR") return "₹";
+  if (currencyCode === "USD") return "$";
+  if (currencyCode === "EUR") return "€";
+  if (currencyCode === "GBP") return "£";
+  return `${currencyCode} `;
+}
+
+function normalizeInsightCurrency(insights: InsightCard[], currencyContext: ReturnType<typeof buildCurrencyContext>): InsightCard[] {
+  if (currencyContext.isMixedCurrency || currencyContext.primaryCurrencyCode === "USD") return insights;
+  const symbol = currencyContext.primarySymbol;
+  return insights.map((insight) => ({
+    ...insight,
+    summary: insight.summary
+      .replace(/\$(?=\d)/g, symbol)
+      .replace(/\bUS dollars?\b/gi, currencyContext.primaryCurrencyCode === "INR" ? "rupees" : currencyContext.primaryCurrencyCode)
+      .replace(/\bdollars?\b/gi, currencyContext.primaryCurrencyCode === "INR" ? "rupees" : currencyContext.primaryCurrencyCode)
+  }));
+}

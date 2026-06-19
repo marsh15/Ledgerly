@@ -170,6 +170,7 @@ model Transaction {
   description    String
   type           TransactionType
   amount         Decimal      @db.Decimal(12, 2)
+  currencyCode   String       @default("INR")
   balanceAfter   Decimal?     @db.Decimal(12, 2)
   category       String?
   confidence     Float

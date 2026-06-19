@@ -31,6 +31,7 @@ export const extractedTransactionSchema = z.object({
   date: z.string(),
   description: z.string().min(1),
   amount: z.number(),
+  currencyCode: z.string().min(3).max(3),
   type: z.enum(["DEBIT", "CREDIT"]),
   balanceAfter: z.number().nullable(),
   category: z.string().nullable(),
@@ -69,6 +70,7 @@ export function extractTransaction(rawText: string, options: ExtractTransactionO
   const text = rawText.replace(/\s+/g, " ").trim();
   const dateHit = findDate(text);
   const amountHit = findAmount(text);
+  const currencyCode = amountHit?.currencyCode ?? findCurrencyCode(text);
   const type = findTransactionType(text, amountHit?.value ?? null);
   const amount = normalizeAmount(amountHit?.value ?? 0, type);
   const balanceAfter = findBalance(text);
@@ -88,6 +90,7 @@ export function extractTransaction(rawText: string, options: ExtractTransactionO
     date: dateHit?.iso ?? new Date().toISOString().slice(0, 10),
     description,
     amount,
+    currencyCode,
     type,
     balanceAfter,
     category,
@@ -174,17 +177,18 @@ function normalizeAmount(amount: number, type: "DEBIT" | "CREDIT"): number {
   return Math.abs(amount);
 }
 
-function findAmount(text: string): { raw: string; value: number; index: number } | null {
-  const labelled = /\bAmount:\s*([+-]?(?:₹|Rs\.?\s*)?[\d,]+(?:\.\d{2})?)\b/i.exec(text);
+function findAmount(text: string): { raw: string; value: number; index: number; currencyCode: string } | null {
+  const labelled = /\bAmount:\s*([+-]?(?:₹|\$|Rs\.?\s*|USD\s*)?[\d,]+(?:\.\d{2})?)\b/i.exec(text);
   if (labelled?.[0] && labelled[1]) {
     return {
       raw: labelled[0],
       value: parseMoney(labelled[1]),
+      currencyCode: findCurrencyCode(labelled[1]),
       index: labelled.index
     };
   }
 
-  const moneyMatches = [...text.matchAll(/(?:₹|Rs\.?\s*)\s*([+-]?[\d,]+(?:\.\d{2})?)/gi)];
+  const moneyMatches = [...text.matchAll(/(?:₹|\$|Rs\.?\s*|USD\s*)\s*([+-]?[\d,]+(?:\.\d{2})?)/gi)];
   const debitWord = /\b(debit(?:ed)?|dr|withdrawn|spent|paid)\b/i.test(text);
   const creditWord = /\b(credit(?:ed)?|cr|deposit(?:ed)?|received)\b/i.test(text);
 
@@ -196,6 +200,7 @@ function findAmount(text: string): { raw: string; value: number; index: number }
       return {
         raw: match[0],
         value: debitWord && value > 0 && !creditWord ? -value : value,
+        currencyCode: findCurrencyCode(match[0]),
         index: match.index
       };
     }
@@ -203,14 +208,14 @@ function findAmount(text: string): { raw: string; value: number; index: number }
 
   const dr = /\b([\d,]+(?:\.\d{2})?)\s*(Dr|debited)\b/i.exec(text);
   if (dr?.[0] && dr[1]) {
-    return { raw: dr[0], value: -parseMoney(dr[1]), index: dr.index };
+    return { raw: dr[0], value: -parseMoney(dr[1]), currencyCode: findCurrencyCode(text), index: dr.index };
   }
 
   return null;
 }
 
 function findBalance(text: string): number | null {
-  const hit = /\b(?:Balance after transaction|Available Balance|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|Rs\.?\s*)?([\d,]+(?:\.\d{2})?)/i.exec(text);
+  const hit = /\b(?:Balance after transaction|Available Balance|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|\$|Rs\.?\s*|USD\s*)?([\d,]+(?:\.\d{2})?)/i.exec(text);
   return hit?.[1] ? parseMoney(hit[1]) : null;
 }
 
@@ -242,7 +247,7 @@ function findCategory(text: string): string | null {
   const labelled = /\bCategory:\s*([A-Za-z][A-Za-z &/-]{1,40})\b/i.exec(text);
   if (labelled?.[1]) return labelled[1].trim();
 
-  const afterBalance = /\b(?:Available Balance|Balance after transaction|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|Rs\.?\s*)?[\d,]+(?:\.\d{2})?\s+([A-Za-z][A-Za-z &/-]{1,40})$/i.exec(text);
+  const afterBalance = /\b(?:Available Balance|Balance after transaction|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|\$|Rs\.?\s*|USD\s*)?[\d,]+(?:\.\d{2})?\s+([A-Za-z][A-Za-z &/-]{1,40})$/i.exec(text);
   return afterBalance?.[1]?.trim() ?? null;
 }
 
@@ -294,8 +299,14 @@ function cleanAccountLabel(value?: string): string {
 }
 
 function parseMoney(value: string): number {
-  const normalized = value.replace(/₹|rs\.?/gi, "").replace(/[,\s]/g, "");
+  const normalized = value.replace(/₹|\$|rs\.?|usd/gi, "").replace(/[,\s]/g, "");
   return Number(normalized);
+}
+
+function findCurrencyCode(value: string): string {
+  if (/(₹|\brs\.?\b|\binr\b)/i.test(value)) return "INR";
+  if (/(\$|\busd\b)/i.test(value)) return "USD";
+  return "INR";
 }
 
 function toIso(year: number, month: number, day: number): string {

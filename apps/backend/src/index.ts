@@ -149,6 +149,7 @@ app.post("/api/transactions", async (c) => {
             description: draft.description,
             type: draft.type,
             amount: draft.amount,
+            currencyCode: cleanCurrencyCode(draft.currencyCode),
             balanceAfter: draft.balanceAfter,
             category: draft.category || null,
             confidence: draft.confidence,
@@ -185,6 +186,7 @@ app.post("/api/transactions/extract", async (c) => {
         description: extracted.description,
         type: extracted.type,
         amount: extracted.amount,
+        currencyCode: extracted.currencyCode,
         balanceAfter: extracted.balanceAfter,
         category: extracted.category,
         confidence: extracted.confidence,
@@ -436,6 +438,7 @@ const draftInputSchema = z.object({
   description: z.string().min(1).max(160),
   type: z.enum(["DEBIT", "CREDIT"]),
   amount: z.number(),
+  currencyCode: z.string().min(3).max(3).optional(),
   balanceAfter: z.number().nullable(),
   category: z.string().max(60).nullable().optional(),
   confidence: z.number().min(0).max(1),
@@ -580,8 +583,13 @@ function cleanAccountLabel(value?: string | null): string {
   return trimmed ? trimmed.slice(0, 60) : "Personal";
 }
 
+function cleanCurrencyCode(value?: string | null): string {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^[A-Z]{3}$/.test(normalized) ? normalized : "INR";
+}
+
 function toCsv(rows: ReturnType<typeof presentTransaction>[]): string {
-  const headers = ["date", "description", "amount", "type", "balanceAfter", "category", "confidence", "status", "accountLabel", "createdAt"];
+  const headers = ["date", "description", "amount", "currencyCode", "type", "balanceAfter", "category", "confidence", "status", "accountLabel", "createdAt"];
   const body = rows.map((row) =>
     headers
       .map((header) => csvCell(String(row[header as keyof typeof row] ?? "")))

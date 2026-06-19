@@ -11,6 +11,8 @@ describe("analytics and subscription helpers", () => {
     ]);
 
     expect(summary.transactionCount).toBe(3);
+    expect(summary.primaryCurrencyCode).toBe("INR");
+    expect(summary.currencyBreakdown[0]).toMatchObject({ currencyCode: "INR", spend: 1298, income: 100000, net: 98702, count: 3 });
     expect(summary.totals).toMatchObject({ spend: 1298, income: 100000, net: 98702, debitCount: 2, creditCount: 1 });
     expect(summary.categoryTotals[0]).toMatchObject({ category: "Entertainment", spend: 1298, count: 2 });
     expect(summary.merchantTotals[0]).toMatchObject({ merchant: "NETFLIX INDIA", spend: 1298, count: 2 });
@@ -30,6 +32,7 @@ describe("analytics and subscription helpers", () => {
     expect(subscriptions[0]).toMatchObject({
       merchant: "NETFLIX INDIA",
       amount: 649,
+      currencyCode: "INR",
       cadence: "monthly",
       lastChargeDate: "2026-03-06",
       transactionCount: 3
@@ -47,6 +50,7 @@ type TransactionOverride = {
   confidence?: number;
   status?: Transaction["status"];
   duplicateOfId?: string | null;
+  currencyCode?: string;
 };
 
 function row(overrides: TransactionOverride): Transaction {
@@ -60,6 +64,7 @@ function row(overrides: TransactionOverride): Transaction {
     description: overrides.description,
     type: overrides.type ?? (overrides.amount < 0 ? "DEBIT" : "CREDIT"),
     amount,
+    currencyCode: overrides.currencyCode ?? "INR",
     balanceAfter: null,
     category: overrides.category ?? null,
     confidence: overrides.confidence ?? 1,

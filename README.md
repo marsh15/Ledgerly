@@ -195,6 +195,7 @@ The parser supports multiple transactions separated by blank lines. Each draft i
       "date": "2025-12-11",
       "description": "STARBUCKS COFFEE MUMBAI",
       "amount": -420,
+      "currencyCode": "INR",
       "type": "DEBIT",
       "balanceAfter": 18420.5,
       "category": "Dining",
@@ -235,7 +236,7 @@ Supported filters:
 - `accountLabel`
 - `minConfidence`
 
-`GET /api/transactions/export` accepts the same filters and returns up to 1,000 tenant-scoped rows as CSV. CSV columns are `date`, `description`, `amount`, `type`, `balanceAfter`, `category`, `confidence`, `status`, `accountLabel`, and `createdAt`.
+`GET /api/transactions/export` accepts the same filters and returns up to 1,000 tenant-scoped rows as CSV. CSV columns are `date`, `description`, `amount`, `currencyCode`, `type`, `balanceAfter`, `category`, `confidence`, `status`, `accountLabel`, and `createdAt`.
 
 ## Parser Behavior
 
@@ -254,7 +255,15 @@ Supported amount and debit indicators:
 - `-420.00`
 - `₹1,250.00 debited`
 - `₹2,999.00 Dr`
+- `$42.50`
 - `->` and `→` balance arrows
+
+Currency behavior:
+
+- `₹`, `Rs`, and `INR` entries are stored and displayed as `INR`.
+- `$` and `USD` entries are stored and displayed as `USD`.
+- Entries without an explicit currency default to `INR`, matching the dashboard's original rupee-first behavior.
+- AI spending insights receive tenant-scoped aggregate currency metadata and must format amounts with the stored transaction currency rather than defaulting to dollars.
 
 Confidence is calculated from detected fields:
 

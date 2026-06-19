@@ -11,6 +11,7 @@ Balance after transaction: 18,420.50`);
       date: "2025-12-11",
       description: "STARBUCKS COFFEE MUMBAI",
       amount: -420,
+      currencyCode: "INR",
       type: "DEBIT",
       balanceAfter: 18420.5,
       category: null,
@@ -26,6 +27,7 @@ Available Balance → ₹17,170.50`);
     expect(result.description).toContain("Uber Ride");
     expect(result.date).toBe("2025-12-11");
     expect(result.amount).toBe(-1250);
+    expect(result.currencyCode).toBe("INR");
     expect(result.type).toBe("DEBIT");
     expect(result.balanceAfter).toBe(17170.5);
     expect(result.category).toBeNull();
@@ -38,6 +40,7 @@ Available Balance → ₹17,170.50`);
     expect(result).toMatchObject({
       date: "2025-12-10",
       amount: -2999,
+      currencyCode: "INR",
       type: "DEBIT",
       balanceAfter: 14171.5,
       category: "Shopping",
@@ -75,6 +78,24 @@ Available Balance -> ₹17,170.50`,
 
     expect(result.category).toBe("Travel");
     expect(result.confidence).toBe(1);
+  });
+
+  it("preserves dollar currency for dollar-denominated entries", () => {
+    const result = extractTransaction(`Date: 18 Dec 2025
+Description: AWS CLOUD SERVICES
+Amount: $42.50
+Balance after transaction: $1,250.00
+Category: Cloud`);
+
+    expect(result).toMatchObject({
+      date: "2025-12-18",
+      description: "AWS CLOUD SERVICES",
+      amount: 42.5,
+      currencyCode: "USD",
+      type: "CREDIT",
+      balanceAfter: 1250,
+      category: "Cloud"
+    });
   });
 
   it("creates editable drafts from blank-line-separated bulk input", () => {

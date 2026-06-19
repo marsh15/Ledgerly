@@ -7,6 +7,7 @@ export function presentTransaction(transaction: Transaction) {
     description: transaction.description,
     type: transaction.type,
     amount: Number(transaction.amount),
+    currencyCode: transaction.currencyCode,
     balanceAfter: transaction.balanceAfter === null ? null : Number(transaction.balanceAfter),
     category: transaction.category,
     confidence: transaction.confidence,
