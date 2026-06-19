@@ -6,6 +6,9 @@ Ledgerly is a personal finance transaction management app for turning raw bank t
 
 - Frontend: https://ledgerly-demo.vercel.app/
 - Backend: https://ledgerly-ytqk.onrender.com
+- Health check: https://ledgerly-ytqk.onrender.com/health
+
+The live demo can be tested safely by registering a fresh email address. New users start with an empty tenant-scoped workspace, so transactions created by one test user should not appear for another user.
 
 ## Tech Stack
 
@@ -158,6 +161,16 @@ Response statuses include:
 - `disabled`
 - `missing_api_key`
 
+Status behavior:
+
+- `empty`: the current filters match zero transactions.
+- `not_enough_data`: fewer than three transactions are available.
+- `disabled`: `AI_INSIGHTS_ENABLED` is unset or not `true` in the backend environment.
+- `missing_api_key`: AI is enabled but `OPENAI_API_KEY` is missing.
+- `ready`: AI is enabled, a key is configured, and enough aggregate data is available.
+
+If the dashboard shows "AI insights are disabled for this environment," the deployed backend is working as configured but has AI disabled. Enable it by setting `AI_INSIGHTS_ENABLED=true` and `OPENAI_API_KEY` on the backend deployment, then redeploying or restarting the service.
+
 ### Preview Transactions
 
 `POST /api/transactions/preview` accepts raw text and returns editable drafts without saving:
@@ -293,14 +306,105 @@ Prisma indexes support tenant-scoped listing and date lookup:
 - `organizationId + date`
 - `organizationId + status`
 - `organizationId + category`
+- `organizationId + accountLabel`
 
 ## Deployment Notes
 
 - Set deployed `BETTER_AUTH_URL`, `FRONTEND_ORIGINS`, `AUTH_URL`, and `NEXT_PUBLIC_BACKEND_URL` to real HTTPS origins. Production rejects localhost origins.
 - Run Prisma migrations and apply `apps/backend/prisma/rls.sql` if the target database predates the RLS migration.
-- Keep `AI_INSIGHTS_ENABLED=false` until `OPENAI_API_KEY` is set in the backend environment.
-- Demo-video checklist: register a fresh user and show an empty workspace, log into a demo user to show seeded data, apply analytics filters, detect subscriptions, export CSV, and generate AI insights with aggregate-only privacy copy visible.
-- `organizationId + accountLabel`
+- Keep `AI_INSIGHTS_ENABLED=false` until `OPENAI_API_KEY` is set in the backend environment. To test production AI insights, set `AI_INSIGHTS_ENABLED=true`, set `OPENAI_API_KEY`, optionally set `OPENAI_MODEL`, and restart the backend.
+- Demo-video checklist: register a fresh user and show an empty workspace, log into a demo user to show seeded data, apply analytics filters, detect subscriptions, export CSV, and generate AI insights. If production AI is disabled, show the disabled state and explain that raw transaction text is never sent to OpenAI.
+
+## Manual Live Testing Checklist
+
+Use the live frontend and create two fresh test users, for example `ledgerly-test-a+<date>@example.com` and `ledgerly-test-b+<date>@example.com`, with a password of at least eight characters.
+
+Core flow:
+
+- Register User A and confirm the dashboard starts empty.
+- Preview and save the sample transactions below.
+- Confirm table rows, analytics, filters, CSV export, category rules, duplicate warnings, and subscription candidates update.
+- Log out, register User B, and confirm User A's transactions, rules, analytics, subscriptions, and CSV rows are not visible.
+
+Sample debit:
+
+```text
+Date: 11 Dec 2025
+Description: STARBUCKS COFFEE MUMBAI
+Amount: -420.00
+Balance after transaction: 18,420.50
+```
+
+Sample built-in category:
+
+```text
+Uber Ride * Airport Drop
+12/11/2025 -> ₹1,250.00 debited
+Available Balance -> ₹17,170.50
+```
+
+Sample explicit category:
+
+```text
+txn123 2025-12-10 Amazon.in Order #403-1234567-8901234 ₹2,999.00 Dr Bal 14171.50 Shopping
+```
+
+Sample bulk paste:
+
+```text
+Date: 14 Dec 2025
+Description: BIGBASKET GROCERY BANGALORE
+Amount: -1,842.75
+Balance after transaction: 32,910.25
+Category: Groceries
+
+Swiggy Instamart Order
+12/15/2025 -> ₹684.00 debited
+Available Balance -> ₹32,226.25 Food
+
+Date: 17 Dec 2025
+Description: SALARY CREDIT ACME TECHNOLOGIES
+Amount: +85,000.00
+Balance after transaction: 116,577.25
+Category: Salary
+```
+
+Recurring subscription sample:
+
+```text
+Date: 01 Oct 2025
+Description: NETFLIX SUBSCRIPTION
+Amount: -649.00
+Balance after transaction: 50,000.00
+Category: Entertainment
+
+Date: 01 Nov 2025
+Description: NETFLIX SUBSCRIPTION
+Amount: -649.00
+Balance after transaction: 49,351.00
+Category: Entertainment
+
+Date: 01 Dec 2025
+Description: NETFLIX SUBSCRIPTION
+Amount: -649.00
+Balance after transaction: 48,702.00
+Category: Entertainment
+```
+
+Low-confidence review sample:
+
+```text
+12 Dec 2025 Local Store -99.00
+```
+
+Expected checks:
+
+- `12/11/2025` is interpreted as December 11, 2025.
+- Debit amounts are negative and credit amounts are positive.
+- Blank-line-separated text creates multiple editable drafts.
+- Saving the same Starbucks sample twice produces a duplicate warning.
+- A category rule such as `starbucks -> Client Meals` applies before built-in or explicit categories.
+- Filtering by search, date range, type, category, status, account label, and minimum confidence affects transactions, analytics, subscriptions, export, and insights.
 
 ## Category Rules
 
