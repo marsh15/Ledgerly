@@ -8,7 +8,10 @@ export const env = {
   databaseUrl: required("DATABASE_URL"),
   betterAuthSecret: required("BETTER_AUTH_SECRET"),
   betterAuthUrl: originSetting("BETTER_AUTH_URL", "http://localhost:4000"),
-  frontendOrigins: frontendOrigins()
+  frontendOrigins: frontendOrigins(),
+  openaiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
+  openaiModel: process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini",
+  aiInsightsEnabled: process.env.AI_INSIGHTS_ENABLED === "true"
 };
 
 function required(name: string): string {

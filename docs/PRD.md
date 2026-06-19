@@ -10,7 +10,7 @@ The core guarantee is: a user must never be able to access another user's transa
 
 Ledgerly is a secure personal finance web app where authenticated users paste raw transaction text, the system deterministically extracts structured transaction data, saves it to PostgreSQL, and shows only the current user's tenant-scoped transactions in a protected dashboard.
 
-The product stays intentionally small: auth, tenant ownership, deterministic extraction, persistence, cursor pagination, tests, and clear documentation.
+The product stays focused but production-credible: auth, tenant ownership, deterministic extraction, persistence, cursor pagination, analytics, computed subscriptions, aggregate-only AI insights, tests, and clear documentation.
 
 ## User Stories
 
@@ -26,6 +26,10 @@ The product stays intentionally small: auth, tenant ownership, deterministic ext
 10. As User A, I want User B to never see my transactions, so that my finance data stays private.
 11. As User B, I should not be able to override `userId` or `organizationId`, so that request tampering cannot bypass isolation.
 12. As the backend, I must derive ownership from verified Better Auth context, so that the server remains the security boundary.
+13. As a new user, I want my workspace to start empty, so that demo or seed data is never mistaken for my personal records.
+14. As an authenticated user, I want dashboard analytics, so that I can understand monthly spend, income, categories, merchants, review work, and duplicates.
+15. As an authenticated user, I want recurring subscription candidates, so that I can spot repeat charges without manual tagging.
+16. As an authenticated user, I want optional AI spending insights, so that I can get plain-language summaries from my aggregate trends.
 
 ## Functional Requirements
 
@@ -66,6 +70,35 @@ Returned transaction fields:
 
 `GET /api/transactions?limit=10&cursor=<id>` is protected. It verifies auth, derives tenant scope, queries only matching `userId` and `organizationId`, sorts newest first, returns `items`, and includes `nextCursor` when more rows exist.
 
+### Analytics
+
+`GET /api/analytics/summary` is protected and accepts the same filters as transaction listing. It returns:
+
+- debit, credit, spend, income, and net totals
+- monthly spend/income/net series
+- category totals
+- merchant totals
+- duplicate count
+- review count
+- transaction count
+
+Empty accounts return zero totals and empty arrays.
+
+### Subscriptions
+
+`GET /api/analytics/subscriptions` is protected and accepts the same filters as transaction listing. It computes recurring debit candidates from tenant-scoped transactions and returns merchant, amount, cadence, last charge date, confidence, and transaction count. No subscription table is persisted for v1.
+
+### AI Insights
+
+`POST /api/insights/generate` is protected and rate-limited. It accepts optional filters and returns structured cards:
+
+- `title`
+- `summary`
+- `severity`
+- `metric`
+
+The OpenAI provider receives only aggregate summaries and subscription candidates. It must not receive raw SMS text, raw transaction text, account numbers, user identity, or another tenant's data. The endpoint handles disabled AI, missing API key, empty data, not-enough-data, rate limits, and provider failures safely.
+
 ## Parser Requirements
 
 The parser is deterministic, explainable, and testable. It supports:
@@ -105,16 +138,20 @@ Sample 3 extracts `2025-12-10`, `Amazon.in Order #403-1234567-8901234`, `-2999.0
 - Use cursor pagination ordered by `createdAt desc, id desc`.
 - Keep transaction ownership out of client inputs. Ownership is derived only from authenticated backend context.
 - Return structured API errors with an `error.code` and `error.message`.
+- Use TanStack Query for frontend server-state reads and invalidation across transactions, category rules, analytics, subscriptions, and AI insights.
+- Use Recharts for dashboard trend and breakdown charts.
+- Keep OpenAI access in a backend-only provider module.
+- Create demo transactions only for explicit demo users: `asha@example.com` and `rohan@example.com`.
 
 ## Testing Decisions
 
-Good tests assert externally visible behavior: extracted fields, confidence, scoped filters, and tampering resistance. Parser tests cover all required samples and incomplete text. Isolation tests verify transaction filters are constructed from authenticated tenant scope rather than caller-provided ownership data.
+Good tests assert externally visible behavior: extracted fields, confidence, scoped filters, analytics totals, subscription detection, aggregate-only AI boundaries, and tampering resistance. Parser tests cover all required samples and incomplete text. Isolation tests verify transaction filters are constructed from authenticated tenant scope rather than caller-provided ownership data.
 
-The minimum acceptance bar is six passing Jest tests; stronger coverage should add protected route, authenticated create, cross-user listing, ownership override, and pagination tests.
+The minimum acceptance bar is passing Jest coverage for parser behavior, protected routes, authenticated create, cross-user listing, ownership override, pagination, analytics, subscriptions, and empty new-user behavior.
 
 ## Out Of Scope
 
-The product does not include bank linking, PDF/OCR parsing, LLM extraction, charts, budgets, admin tools, payments, mobile apps, complex RBAC, or manual transaction editing.
+The product does not include bank linking, PDF/OCR parsing, LLM extraction, budgets, admin tools, payments, mobile apps, complex RBAC, persisted subscriptions, or manual transaction editing outside the preview/review workflow.
 
 ## Acceptance Criteria
 
@@ -124,7 +161,11 @@ The product does not include bank linking, PDF/OCR parsing, LLM extraction, char
 - Extracted transactions save to PostgreSQL.
 - Saved rows include server-derived user and organization ownership.
 - Users can list only their own transactions.
+- Newly registered users see an empty workspace.
+- Demo data appears only in explicit demo accounts.
 - Cursor pagination returns a `nextCursor` when more rows exist.
 - Client-supplied ownership fields cannot bypass tenant isolation.
+- Dashboard analytics and subscriptions are tenant-scoped and filter-aware.
+- AI insights are authenticated, rate-limited, aggregate-only, and safe when disabled or unconfigured.
 - Jest tests pass.
-- README documents setup, env vars, commands, parser assumptions, auth, isolation, pagination, demo credentials, and AI tools used.
+- README documents setup, env vars, commands, parser assumptions, auth, isolation, pagination, analytics, subscriptions, demo credentials, AI privacy, deployment notes, and demo-video checklist.

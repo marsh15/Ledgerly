@@ -6,10 +6,13 @@ import type { Context, Next } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { getAnalyticsSummary } from "./analytics";
 import { auth } from "./auth";
 import { prisma, withTenant } from "./db";
 import { env } from "./env";
+import { generateSpendingInsights, InsightConfigError } from "./openai-insights";
 import { assertWithinRateLimit } from "./rate-limit";
+import { detectSubscriptions } from "./subscriptions";
 import { getTenantScope, ensurePersonalTenant } from "./tenant";
 import { buildTransactionWhere, type TransactionFilters } from "./transaction-query";
 import { presentTransaction } from "./transaction-presenter";
@@ -97,6 +100,10 @@ app.use("/api/transactions", scopedAuth);
 app.use("/api/transactions/*", scopedAuth);
 app.use("/api/category-rules", scopedAuth);
 app.use("/api/category-rules/*", scopedAuth);
+app.use("/api/analytics", scopedAuth);
+app.use("/api/analytics/*", scopedAuth);
+app.use("/api/insights", scopedAuth);
+app.use("/api/insights/*", scopedAuth);
 
 app.post("/api/transactions/preview", async (c) => {
   const scope = c.get("scope");
@@ -255,6 +262,55 @@ app.get("/api/transactions", async (c) => {
   });
 });
 
+app.get("/api/analytics/summary", async (c) => {
+  const scope = c.get("scope");
+  const filters = parseTransactionFilters(c);
+  const summary = await withTenant(scope, (tx) => getAnalyticsSummary(tx, scope, filters));
+
+  return c.json(summary);
+});
+
+app.get("/api/analytics/subscriptions", async (c) => {
+  const scope = c.get("scope");
+  const filters = parseTransactionFilters(c);
+  const subscriptions = await withTenant(scope, (tx) => detectSubscriptions(tx, scope, filters));
+
+  return c.json({ subscriptions });
+});
+
+app.post("/api/insights/generate", async (c) => {
+  const scope = c.get("scope");
+  assertWithinRateLimit(`ai:${scope.userId}`);
+  const body = insightBodySchema.parse(await c.req.json().catch(() => ({})));
+  const filters = body.filters ?? {};
+
+  const { summary, subscriptions } = await withTenant(scope, async (tx) => ({
+    summary: await getAnalyticsSummary(tx, scope, filters),
+    subscriptions: await detectSubscriptions(tx, scope, filters)
+  }));
+
+  if (summary.transactionCount === 0) {
+    return c.json({ insights: [], status: "empty" });
+  }
+  if (summary.transactionCount < 3) {
+    return c.json({ insights: [], status: "not_enough_data" });
+  }
+
+  try {
+    const insights = await generateSpendingInsights({
+      summary,
+      subscriptions,
+      context: filters
+    });
+    return c.json({ insights, status: "ready" });
+  } catch (error) {
+    if (error instanceof InsightConfigError) {
+      return c.json({ insights: [], status: env.aiInsightsEnabled ? "missing_api_key" : "disabled" });
+    }
+    throw error;
+  }
+});
+
 app.delete("/api/transactions/:id", async (c) => {
   const scope = c.get("scope");
   const deleted = await withTenant(scope, async (tx) => {
@@ -406,6 +462,19 @@ const paginationQuerySchema = z.object({
     .min(1)
     .optional()
     .refine((value) => !value || Number(value) <= 50, "Limit cannot exceed 50")
+});
+
+const insightBodySchema = z.object({
+  filters: z.object({
+    search: z.string().trim().min(1).max(120).optional(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    type: z.enum(["DEBIT", "CREDIT"]).optional(),
+    category: z.string().trim().min(1).max(60).optional(),
+    status: z.enum(["SAVED", "NEEDS_REVIEW"]).optional(),
+    accountLabel: z.string().trim().min(1).max(60).optional(),
+    minConfidence: z.number().min(0).max(1).optional()
+  }).optional()
 });
 
 function parseTransactionFilters(c: Context<{ Variables: Variables }>): TransactionFilters {

@@ -15,6 +15,8 @@ Ledgerly is a personal finance transaction management app for turning raw bank t
 - Frontend session bridge: Auth.js credentials provider
 - Database: PostgreSQL with Prisma
 - UI: Tailwind CSS and shadcn/ui-style primitives
+- Server state and charts: TanStack Query and Recharts
+- AI insights: OpenAI Responses API through a backend-only provider
 - Testing: Jest, ts-jest, Playwright
 
 ## Architecture
@@ -24,7 +26,7 @@ Next.js frontend
   -> Auth.js credentials session bridge
   -> Hono backend
   -> Better Auth identity and tenant context
-  -> Transaction parser and tenant-scoped services
+  -> Transaction parser, analytics, subscriptions, and AI aggregate services
   -> Prisma
   -> PostgreSQL
 ```
@@ -40,6 +42,9 @@ Better Auth is the source of truth for registration, login, password hashing, se
 - Duplicate detection within the authenticated tenant
 - Category rules for merchant-specific categorization
 - Search, filtering, cursor pagination, and CSV export
+- Production dashboard analytics for monthly trends, category totals, merchant totals, debit/credit totals, review counts, and duplicate counts
+- Computed recurring subscription detection from tenant-scoped transactions
+- Optional OpenAI spending insights generated from aggregates only
 - Tenant-scoped backend queries and PostgreSQL row-level security
 
 ## Local Setup
@@ -82,6 +87,9 @@ FRONTEND_ORIGIN="http://localhost:3000"
 NEXT_PUBLIC_BACKEND_URL="http://localhost:4000"
 NEXT_PUBLIC_API_URL="http://localhost:4000"
 BACKEND_INTERNAL_URL="http://localhost:4000"
+AI_INSIGHTS_ENABLED="false"
+OPENAI_API_KEY=""
+OPENAI_MODEL="gpt-4.1-mini"
 ```
 
 `FRONTEND_ORIGIN` and `NEXT_PUBLIC_API_URL` are kept for compatibility. `FRONTEND_URL` and `NEXT_PUBLIC_BACKEND_URL` are the primary frontend/backend URL variables.
@@ -108,7 +116,7 @@ After running `npm run seed`, the following users are available locally:
 - `asha@example.com` / `Password123!`
 - `rohan@example.com` / `Password123!`
 
-Each seeded user belongs to a separate personal organization and team.
+Each seeded user belongs to a separate personal organization and team. Demo transaction records are created only for these explicit demo accounts. Newly registered users start with an empty private workspace.
 
 ## API
 
@@ -121,6 +129,9 @@ POST /api/transactions/extract
 GET /api/transactions?limit=10&cursor=<opaque_cursor>
 GET /api/transactions/export
 DELETE /api/transactions/:id
+GET /api/analytics/summary
+GET /api/analytics/subscriptions
+POST /api/insights/generate
 GET /api/category-rules
 POST /api/category-rules
 PATCH /api/category-rules/:id
@@ -128,6 +139,24 @@ DELETE /api/category-rules/:id
 ```
 
 All transaction and category-rule endpoints are protected. The backend derives `userId`, `organizationId`, and `teamId` from the verified Better Auth session. Client-supplied ownership fields are ignored.
+
+### Analytics And Subscriptions
+
+`GET /api/analytics/summary` accepts the same filters as transaction listing and returns tenant-scoped totals, monthly series, category totals, merchant totals, duplicate count, review count, and transaction count.
+
+`GET /api/analytics/subscriptions` accepts the same filters and returns computed recurring debit candidates with merchant, amount, cadence, last charge date, confidence, and transaction count. v1 does not persist a subscription table.
+
+### AI Insights
+
+`POST /api/insights/generate` is protected and rate-limited. It accepts optional transaction filters and calls OpenAI only from the backend when `AI_INSIGHTS_ENABLED=true` and `OPENAI_API_KEY` is configured. The provider receives aggregate summaries and recurring candidates only; raw SMS text, raw transaction text, user identity, and other tenants' rows are never sent.
+
+Response statuses include:
+
+- `ready`
+- `empty`
+- `not_enough_data`
+- `disabled`
+- `missing_api_key`
 
 ### Preview Transactions
 
@@ -238,6 +267,12 @@ The backend does not trust `userId`, `organizationId`, `teamId`, or `duplicateOf
 
 PostgreSQL row-level security is enabled and forced on `transaction` and `category_rule`. Tenant-scoped Prisma operations run inside a transaction that sets `app.current_organization_id` before touching those tables.
 
+Seed/demo safety:
+
+- `npm run seed` creates demo rows only for `asha@example.com` and `rohan@example.com`.
+- Registration and login only ensure a personal tenant exists; they do not copy demo rows into real accounts.
+- CSV export, analytics, subscription detection, category rules, and AI insights all use server-derived tenant scope.
+
 For databases created before the RLS migration, the policy SQL is available at `apps/backend/prisma/rls.sql`:
 
 ```bash
@@ -258,6 +293,13 @@ Prisma indexes support tenant-scoped listing and date lookup:
 - `organizationId + date`
 - `organizationId + status`
 - `organizationId + category`
+
+## Deployment Notes
+
+- Set deployed `BETTER_AUTH_URL`, `FRONTEND_ORIGINS`, `AUTH_URL`, and `NEXT_PUBLIC_BACKEND_URL` to real HTTPS origins. Production rejects localhost origins.
+- Run Prisma migrations and apply `apps/backend/prisma/rls.sql` if the target database predates the RLS migration.
+- Keep `AI_INSIGHTS_ENABLED=false` until `OPENAI_API_KEY` is set in the backend environment.
+- Demo-video checklist: register a fresh user and show an empty workspace, log into a demo user to show seeded data, apply analytics filters, detect subscriptions, export CSV, and generate AI insights with aggregate-only privacy copy visible.
 - `organizationId + accountLabel`
 
 ## Category Rules

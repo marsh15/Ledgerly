@@ -11,6 +11,7 @@ import {
   Loader2,
   LockKeyhole,
   LogOut,
+  PieChart,
   PencilLine,
   ReceiptText,
   RefreshCw,
@@ -23,6 +24,8 @@ import {
 import { signOut } from "next-auth/react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart as RechartsPieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,6 +71,32 @@ type CategoryRule = {
   id: string;
   matchText: string;
   category: string;
+};
+
+type AnalyticsSummary = {
+  totals: { spend: number; income: number; net: number; debitCount: number; creditCount: number };
+  monthlySeries: Array<{ month: string; spend: number; income: number; net: number; count: number }>;
+  categoryTotals: Array<{ category: string; spend: number; income: number; count: number }>;
+  merchantTotals: Array<{ merchant: string; spend: number; income: number; count: number }>;
+  duplicateCount: number;
+  reviewCount: number;
+  transactionCount: number;
+};
+
+type SubscriptionCandidate = {
+  merchant: string;
+  amount: number;
+  cadence: string;
+  lastChargeDate: string;
+  confidence: number;
+  transactionCount: number;
+};
+
+type InsightCard = {
+  title: string;
+  summary: string;
+  severity: "info" | "warning" | "positive";
+  metric: string;
 };
 
 type Filters = {
@@ -139,8 +168,10 @@ const emptyFilters: Filters = {
 const MAX_TRANSACTION_TEXT_LENGTH = 50_000;
 const tableActionColumnClass = "sticky right-0 z-10 bg-background text-right shadow-[-12px_0_16px_-16px_rgba(15,23,42,0.45)] group-hover:bg-secondary/45";
 const tableActionHeadClass = "sticky right-0 z-20 bg-muted/55 text-right shadow-[-12px_0_16px_-16px_rgba(15,23,42,0.45)]";
+const chartColors = ["#047857", "#0f766e", "#2563eb", "#9333ea", "#c2410c"];
 
 export function Dashboard({ token, userName }: { token: string; userName: string }) {
+  const queryClient = useQueryClient();
   const [text, setText] = useState(samples[0]?.text ?? "");
   const [accountLabel, setAccountLabel] = useState("Personal");
   const [drafts, setDrafts] = useState<TransactionDraft[]>([]);
@@ -156,33 +187,37 @@ export function Dashboard({ token, userName }: { token: string; userName: string
     title: "Ready to review",
     message: "Paste one snippet or a blank-line-separated batch to preview editable drafts."
   });
+  const queryString = useMemo(() => buildQuery(filters), [filters]);
+  const insightFilters = useMemo(() => compactFilters(filters), [filters]);
+  const summaryQuery = useQuery({
+    queryKey: ["analytics-summary", queryString],
+    queryFn: () => apiFetch<AnalyticsSummary>(`/api/analytics/summary?${queryString}`, token)
+  });
+  const subscriptionsQuery = useQuery({
+    queryKey: ["subscriptions", queryString],
+    queryFn: () => apiFetch<{ subscriptions: SubscriptionCandidate[] }>(`/api/analytics/subscriptions?${queryString}`, token)
+  });
+  const rulesQuery = useQuery({
+    queryKey: ["category-rules"],
+    queryFn: () => apiFetch<{ rules: CategoryRule[] }>("/api/category-rules", token)
+  });
+  const insightsMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ insights: InsightCard[]; status: "ready" | "empty" | "not_enough_data" | "disabled" | "missing_api_key" }>("/api/insights/generate", token, {
+        method: "POST",
+        body: JSON.stringify({ filters: insightFilters })
+      }),
+    onError: (error) => showError("Insights failed", error, "Unable to generate spending insights")
+  });
 
-  const totalSpend = useMemo(
-    () => transactions.reduce((sum, transaction) => sum + (transaction.amount < 0 ? Math.abs(transaction.amount) : 0), 0),
-    [transactions]
-  );
+  const analytics = summaryQuery.data;
+  const subscriptions = subscriptionsQuery.data?.subscriptions ?? [];
+  const totalSpend = analytics?.totals.spend ?? 0;
   const averageConfidence = useMemo(() => {
     if (transactions.length === 0) return null;
     return Math.round((transactions.reduce((sum, transaction) => sum + transaction.confidence, 0) / transactions.length) * 100);
   }, [transactions]);
-  const needsReviewCount = useMemo(() => transactions.filter((transaction) => transaction.status === "NEEDS_REVIEW").length, [transactions]);
-  const categoryBreakdown = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const transaction of transactions) {
-      if (transaction.amount >= 0) continue;
-      const category = transaction.category ?? "Uncategorized";
-      totals.set(category, (totals.get(category) ?? 0) + Math.abs(transaction.amount));
-    }
-    return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [transactions]);
-  const topMerchants = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const transaction of transactions) {
-      const merchant = transaction.description.split(/\s+/).slice(0, 2).join(" ");
-      counts.set(merchant, (counts.get(merchant) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [transactions]);
+  const needsReviewCount = analytics?.reviewCount ?? 0;
   const duplicateDraftCount = useMemo(() => drafts.filter((draft) => draft.duplicate.isDuplicate).length, [drafts]);
   const savedDuplicateCount = useMemo(() => transactions.filter((transaction) => transaction.duplicateOfId).length, [transactions]);
   const hasActiveFilters = useMemo(() => Object.values(filters).some((value) => value.trim().length > 0), [filters]);
@@ -194,6 +229,10 @@ export function Dashboard({ token, userName }: { token: string; userName: string
       const items = page.items ?? page.transactions ?? [];
       setTransactions((current) => (cursor ? [...current, ...items] : items));
       setNextCursor(page.nextCursor);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["analytics-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["subscriptions"] })
+      ]);
     } catch (error) {
       showError("Ledger could not load", error, "Unable to load transactions");
     } finally {
@@ -267,6 +306,10 @@ export function Dashboard({ token, userName }: { token: string; userName: string
       });
       setDrafts([]);
       setTransactions((current) => [...result.transactions, ...current]);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["analytics-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["subscriptions"] })
+      ]);
       setFeedback({ tone: "success", title: "Reviewed drafts saved", message: `${result.transactions.length} transaction rows were added to this workspace.` });
       toast.success("Transactions saved");
     } catch (error) {
@@ -310,6 +353,7 @@ export function Dashboard({ token, userName }: { token: string; userName: string
         body: JSON.stringify(ruleDraft)
       });
       setRuleDraft({ matchText: "", category: "" });
+      await queryClient.invalidateQueries({ queryKey: ["category-rules"] });
       await loadRules();
       toast.success("Category rule saved");
     } catch (error) {
@@ -324,6 +368,7 @@ export function Dashboard({ token, userName }: { token: string; userName: string
     try {
       await apiFetch<{ ok: true }>(`/api/category-rules/${id}`, token, { method: "DELETE" });
       setRules((current) => current.filter((rule) => rule.id !== id));
+      await queryClient.invalidateQueries({ queryKey: ["category-rules"] });
       toast.success("Category rule deleted");
     } catch (error) {
       showError("Delete failed", error, "Unable to delete category rule");
@@ -340,6 +385,10 @@ export function Dashboard({ token, userName }: { token: string; userName: string
     try {
       await apiFetch<{ ok: true }>(`/api/transactions/${transaction.id}`, token, { method: "DELETE" });
       setTransactions((current) => current.filter((item) => item.id !== transaction.id));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["analytics-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["subscriptions"] })
+      ]);
       toast.success("Transaction deleted");
     } catch (error) {
       showError("Delete failed", error, "Unable to delete transaction");
@@ -384,6 +433,10 @@ export function Dashboard({ token, userName }: { token: string; userName: string
     void load();
     void loadRules();
   }, []);
+
+  useEffect(() => {
+    if (rulesQuery.data?.rules) setRules(rulesQuery.data.rules);
+  }, [rulesQuery.data?.rules]);
 
   const initials = getInitials(userName);
 
@@ -644,8 +697,28 @@ export function Dashboard({ token, userName }: { token: string; userName: string
               </div>
 
               <div className="grid gap-3 px-4 md:grid-cols-2">
-                <InsightList title="Category spend" items={categoryBreakdown.map(([label, value]) => ({ label, value: `₹${Math.round(value).toLocaleString("en-IN")}` }))} />
-                <InsightList title="Top merchants" items={topMerchants.map(([label, value]) => ({ label, value: `${value} row${value === 1 ? "" : "s"}` }))} />
+                <InsightList
+                  title="Category spend"
+                  items={(analytics?.categoryTotals ?? []).slice(0, 5).map((item) => ({ label: item.category, value: `₹${Math.round(item.spend).toLocaleString("en-IN")}` }))}
+                />
+                <InsightList
+                  title="Merchant trends"
+                  items={(analytics?.merchantTotals ?? []).slice(0, 5).map((item) => ({ label: item.merchant, value: `₹${Math.round(item.spend).toLocaleString("en-IN")}` }))}
+                />
+              </div>
+
+              <div className="grid gap-3 px-4 xl:grid-cols-[1.15fr_0.85fr]">
+                <AnalyticsCharts summary={analytics} loading={summaryQuery.isLoading} />
+                <SubscriptionsPanel subscriptions={subscriptions} loading={subscriptionsQuery.isLoading} />
+              </div>
+
+              <div className="px-4">
+                <AiInsightsPanel
+                  result={insightsMutation.data}
+                  loading={insightsMutation.isPending}
+                  transactionCount={analytics?.transactionCount ?? 0}
+                  onGenerate={() => insightsMutation.mutate()}
+                />
               </div>
 
               <div className="px-4 text-xs text-muted-foreground md:hidden">Swipe the table sideways for balance, category, and actions.</div>
@@ -851,6 +924,148 @@ function InsightList({ title, items }: { title: string; items: { label: string; 
   );
 }
 
+function AnalyticsCharts({ summary, loading }: { summary: AnalyticsSummary | undefined; loading: boolean }) {
+  const monthly = summary?.monthlySeries ?? [];
+  const categories = summary?.categoryTotals.slice(0, 5) ?? [];
+  const hasData = Boolean(summary && summary.transactionCount > 0);
+
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <PieChart className="size-4 text-primary" />
+        Spend analytics
+      </h2>
+      {loading ? (
+        <div className="mt-3 h-62 rounded-md bg-muted" />
+      ) : !hasData ? (
+        <p className="mt-3 text-sm text-muted-foreground">No saved transactions match these filters yet.</p>
+      ) : (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className="h-62 min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthly}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} width={48} />
+                <Tooltip formatter={(value) => formatMoney(Number(value), false)} />
+                <Bar dataKey="spend" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="income" fill="#0f766e" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="h-62 min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <RechartsPieChart>
+                <Pie data={categories} dataKey="spend" nameKey="category" innerRadius={46} outerRadius={82} paddingAngle={3}>
+                  {categories.map((entry, index) => (
+                    <Cell key={entry.category} fill={chartColors[index % chartColors.length] ?? "#047857"} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatMoney(Number(value), false)} />
+              </RechartsPieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubscriptionsPanel({ subscriptions, loading }: { subscriptions: SubscriptionCandidate[]; loading: boolean }) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <RefreshCw className="size-4 text-primary" />
+        Recurring charges
+      </h2>
+      {loading ? (
+        <div className="mt-3 space-y-2">
+          <div className="h-12 rounded-md bg-muted" />
+          <div className="h-12 rounded-md bg-muted" />
+        </div>
+      ) : subscriptions.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">No recurring debit pattern detected in this filtered set.</p>
+      ) : (
+        <div className="mt-3 divide-y rounded-md border">
+          {subscriptions.map((item) => (
+            <div key={`${item.merchant}-${item.amount}-${item.lastChargeDate}`} className="grid gap-2 px-3 py-3 text-sm sm:grid-cols-[1fr_auto]">
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-foreground">{item.merchant}</p>
+                <p className="text-xs text-muted-foreground">
+                  {item.cadence} cadence · last charged {item.lastChargeDate}
+                </p>
+              </div>
+              <div className="text-left sm:text-right">
+                <p className="font-mono font-semibold">{formatMoney(-item.amount)}</p>
+                <p className="text-xs text-primary">{Math.round(item.confidence * 100)}% confidence</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiInsightsPanel({
+  result,
+  loading,
+  transactionCount,
+  onGenerate
+}: {
+  result: { insights: InsightCard[]; status: string } | undefined;
+  loading: boolean;
+  transactionCount: number;
+  onGenerate: () => void;
+}) {
+  const status = result?.status;
+  const disabledMessage =
+    status === "disabled"
+      ? "AI insights are disabled for this environment."
+      : status === "missing_api_key"
+        ? "AI insights need an OpenAI API key on the backend."
+        : status === "not_enough_data"
+          ? "Save at least three transactions to generate meaningful insights."
+          : status === "empty" || transactionCount === 0
+            ? "Save transactions first; new workspaces stay empty until you import data."
+            : null;
+
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Sparkles className="size-4 text-primary" />
+            AI spending insights
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">Generated from tenant-scoped aggregates only.</p>
+        </div>
+        <Button type="button" variant="outline" onClick={onGenerate} disabled={loading || transactionCount === 0} className="h-10">
+          {loading ? <Loader2 data-icon="inline-start" className="size-4 animate-spin" /> : <Sparkles data-icon="inline-start" className="size-4" />}
+          Generate
+        </Button>
+      </div>
+      {loading ? <p className="mt-3 text-sm text-muted-foreground">Analyzing aggregate trends...</p> : null}
+      {disabledMessage ? <p className="mt-3 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{disabledMessage}</p> : null}
+      {result?.insights?.length ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {result.insights.map((insight) => (
+            <div key={insight.title} className="rounded-md border px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold text-foreground">{insight.title}</p>
+                <Badge variant="outline" className={insight.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}>
+                  {insight.metric}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">{insight.summary}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="grid min-w-0 gap-1.5 text-xs font-medium text-muted-foreground">
@@ -944,6 +1159,28 @@ function buildQuery(filters: Filters, cursor?: string): string {
   }
   return params.toString();
 }
+
+function compactFilters(filters: Filters): Partial<TransactionFiltersForApi> {
+  const compacted: Partial<TransactionFiltersForApi> = {};
+  for (const [key, value] of Object.entries(filters)) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (key === "minConfidence") compacted.minConfidence = Number(trimmed);
+    else compacted[key as keyof Omit<TransactionFiltersForApi, "minConfidence">] = trimmed as never;
+  }
+  return compacted;
+}
+
+type TransactionFiltersForApi = {
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+  type: TransactionType;
+  category: string;
+  status: TransactionStatus;
+  accountLabel: string;
+  minConfidence: number;
+};
 
 function getInitials(name: string): string {
   return (

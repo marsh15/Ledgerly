@@ -116,6 +116,26 @@ describe("auth routes and tenant-scoped transactions", () => {
     });
     expect(exportB.status).toBe(200);
     expect(await exportB.text()).not.toContain("STARBUCKS COFFEE MUMBAI");
+
+    const analyticsB = await app.request("/api/analytics/summary", {
+      headers: bearer(authB.token)
+    });
+    expect(analyticsB.status).toBe(200);
+    await expect(analyticsB.json()).resolves.toMatchObject({ transactionCount: 0 });
+
+    const subscriptionsB = await app.request("/api/analytics/subscriptions", {
+      headers: bearer(authB.token)
+    });
+    expect(subscriptionsB.status).toBe(200);
+    await expect(subscriptionsB.json()).resolves.toMatchObject({ subscriptions: [] });
+
+    const insightsB = await app.request("/api/insights/generate", {
+      method: "POST",
+      headers: { ...bearer(authB.token), "content-type": "application/json" },
+      body: JSON.stringify({ userId: authA.user.id, organizationId: "attacker-org" })
+    });
+    expect(insightsB.status).toBe(200);
+    await expect(insightsB.json()).resolves.toMatchObject({ insights: [], status: "empty" });
   });
 
   it("drops duplicateOfId when it points at another user's transaction", async () => {
