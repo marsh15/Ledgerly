@@ -11,10 +11,12 @@ test("account switching does not show stale ledger data", async ({ page }) => {
 
   await page.goto("/transactions");
   await page.getByRole("button", { name: "Add transaction" }).click();
-  await page.getByLabel("Description").fill("E2E PRIVATE COFFEE");
-  await page.getByLabel("Amount").fill("420");
-  await page.getByLabel("Currency").fill("INR");
-  await page.getByRole("button", { name: "Add transaction", exact: true }).last().click();
+  const dialog = page.getByRole("dialog", { name: "Add transaction" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Description", { exact: true }).fill("E2E PRIVATE COFFEE");
+  await dialog.getByLabel("Amount", { exact: true }).fill("420");
+  await dialog.getByLabel("Currency", { exact: true }).fill("INR");
+  await dialog.getByRole("button", { name: "Add transaction", exact: true }).click();
   await expect(page.getByText("E2E PRIVATE COFFEE")).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
@@ -50,7 +52,7 @@ test("mobile navigation and transaction cards are keyboard reachable", async ({ 
   await register(page, { name: "E2E Mobile User", email: `e2e-mobile-${runId}@example.com` });
   await page.getByRole("button", { name: "Open navigation" }).focus();
   await page.keyboard.press("Enter");
-  await page.getByRole("link", { name: "Transactions" }).click();
+  await page.getByRole("link", { name: "Transactions", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Transactions" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add transaction" })).toBeVisible();
 });
