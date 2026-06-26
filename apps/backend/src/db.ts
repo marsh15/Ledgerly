@@ -9,6 +9,7 @@ export const prisma = new PrismaClient({
 export async function withTenant<T>(scope: TenantScope, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.current_organization_id', ${scope.organizationId}, true)`;
+    await tx.$executeRaw`SELECT set_config('app.current_user_id', ${scope.userId}, true)`;
     return work(tx);
   });
 }

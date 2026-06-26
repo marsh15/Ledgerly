@@ -14,6 +14,9 @@ export function presentTransaction(transaction: Transaction) {
     status: transaction.status,
     accountLabel: transaction.accountLabel,
     duplicateOfId: transaction.duplicateOfId,
-    createdAt: transaction.createdAt.toISOString()
+    source: transaction.source,
+    importBatchId: transaction.importBatchId,
+    createdAt: transaction.createdAt.toISOString(),
+    updatedAt: transaction.updatedAt.toISOString()
   };
 }

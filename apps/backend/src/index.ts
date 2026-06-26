@@ -1,5 +1,14 @@
 import { serve } from "@hono/node-server";
-import { createTransactionDrafts, extractTransaction, normalizeForMatching, reviewStatusForConfidence } from "@ledgerly/shared";
+import {
+  createTransactionDrafts,
+  extractTransaction,
+  importCreateBodySchema,
+  importPreviewBodySchema,
+  normalizeForMatching,
+  reviewStatusForConfidence,
+  transactionInputSchema,
+  transactionUpdateSchema
+} from "@ledgerly/shared";
 import type { Prisma, Transaction } from "@prisma/client";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
@@ -38,7 +47,30 @@ app.use(
   })
 );
 
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("x-request-id")?.slice(0, 100) || crypto.randomUUID();
+  const startedAt = Date.now();
+  c.header("x-request-id", requestId);
+  await next();
+  console.info(JSON.stringify({
+    event: "request.complete",
+    requestId,
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    status: c.res.status,
+    durationMs: Date.now() - startedAt
+  }));
+});
+
 app.get("/health", (c) => c.json({ ok: true }));
+app.get("/ready", async (c) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return c.json({ ok: true });
+  } catch {
+    return c.json({ ok: false, error: { code: "DATABASE_UNAVAILABLE", message: "Database is not ready" } }, 503);
+  }
+});
 
 app.post("/api/auth/register", async (c) => {
   const body = registerBodySchema.parse(await c.req.json());
@@ -104,10 +136,12 @@ app.use("/api/analytics", scopedAuth);
 app.use("/api/analytics/*", scopedAuth);
 app.use("/api/insights", scopedAuth);
 app.use("/api/insights/*", scopedAuth);
+app.use("/api/imports", scopedAuth);
+app.use("/api/imports/*", scopedAuth);
 
 app.post("/api/transactions/preview", async (c) => {
   const scope = c.get("scope");
-  assertWithinRateLimit(scope.userId);
+  await assertWithinRateLimit(scope.userId);
 
   const body = previewBodySchema.parse(await c.req.json());
   const enrichedDrafts = await withTenant(scope, async (tx) => {
@@ -131,7 +165,7 @@ app.post("/api/transactions/preview", async (c) => {
 
 app.post("/api/transactions", async (c) => {
   const scope = c.get("scope");
-  assertWithinRateLimit(scope.userId);
+  await assertWithinRateLimit(scope.userId);
 
   const body = saveDraftsBodySchema.parse(await c.req.json());
   const saved = await withTenant(scope, async (tx) => {
@@ -156,6 +190,7 @@ app.post("/api/transactions", async (c) => {
             status: draft.status ?? reviewStatusForConfidence(draft.confidence),
             accountLabel: cleanAccountLabel(draft.accountLabel),
             duplicateOfId,
+            source: "TEXT",
             rawText: draft.sourceText ?? draft.rawText ?? draft.description
           }
         })
@@ -170,7 +205,7 @@ app.post("/api/transactions", async (c) => {
 
 app.post("/api/transactions/extract", async (c) => {
   const scope = c.get("scope");
-  assertWithinRateLimit(scope.userId);
+  await assertWithinRateLimit(scope.userId);
 
   const body = extractBodySchema.parse(await c.req.json());
   const { saved, duplicate } = await withTenant(scope, async (tx) => {
@@ -193,6 +228,7 @@ app.post("/api/transactions/extract", async (c) => {
         status: reviewStatusForConfidence(extracted.confidence),
         accountLabel: cleanAccountLabel(body.accountLabel),
         duplicateOfId: duplicate.isDuplicate ? duplicate.existingId : null,
+        source: "TEXT",
         rawText: body.text
       }
     });
@@ -200,6 +236,148 @@ app.post("/api/transactions/extract", async (c) => {
   });
 
   return c.json({ transaction: presentTransaction(saved), duplicate }, 201);
+});
+
+app.patch("/api/transactions/:id", async (c) => {
+  const scope = c.get("scope");
+  const body = transactionUpdateSchema.parse(await c.req.json());
+  const updated = await withTenant(scope, async (tx) => {
+    const existing = await tx.transaction.findFirst({
+      where: { id: c.req.param("id"), userId: scope.userId, organizationId: scope.organizationId }
+    });
+    if (!existing) return null;
+    if (existing.updatedAt.toISOString() !== body.expectedUpdatedAt) {
+      throw new HTTPException(409, { message: "This transaction changed after you opened it. Refresh and try again." });
+    }
+
+    const validated = transactionInputSchema.parse({
+      date: body.date ?? existing.date.toISOString().slice(0, 10),
+      description: body.description ?? existing.description,
+      type: body.type ?? existing.type,
+      amount: body.amount ?? Number(existing.amount),
+      currencyCode: body.currencyCode ?? existing.currencyCode,
+      balanceAfter: body.balanceAfter === undefined ? (existing.balanceAfter === null ? null : Number(existing.balanceAfter)) : body.balanceAfter,
+      category: body.category === undefined ? existing.category : body.category,
+      confidence: existing.confidence,
+      status: body.status ?? existing.status,
+      accountLabel: body.accountLabel ?? existing.accountLabel,
+      source: existing.source
+    });
+
+    const result = await tx.transaction.updateMany({
+      where: { id: existing.id, userId: scope.userId, organizationId: scope.organizationId, updatedAt: existing.updatedAt },
+      data: {
+        date: new Date(`${validated.date}T00:00:00.000Z`),
+        description: validated.description,
+        type: validated.type,
+        amount: validated.amount,
+        currencyCode: validated.currencyCode,
+        balanceAfter: validated.balanceAfter,
+        category: validated.category,
+        status: validated.status,
+        accountLabel: validated.accountLabel
+      }
+    });
+    if (result.count === 0) throw new HTTPException(409, { message: "This transaction changed after you opened it. Refresh and try again." });
+    return tx.transaction.findUniqueOrThrow({ where: { id: existing.id } });
+  });
+  if (!updated) throw new HTTPException(404, { message: "Transaction not found" });
+  return c.json({ transaction: presentTransaction(updated) });
+});
+
+app.post("/api/imports/preview", async (c) => {
+  const scope = c.get("scope");
+  await assertWithinRateLimit(`import-preview:${scope.userId}`, 20);
+  const body = importPreviewBodySchema.parse(await c.req.json());
+  const rows = await withTenant(scope, async (tx) => {
+    const seen = new Map<string, number>();
+    const output = [];
+    for (const [index, record] of body.records.entries()) {
+      const duplicate = await findDuplicate(tx, scope, record);
+      const fingerprint = importFingerprint(record);
+      const withinFileDuplicateOf = seen.get(fingerprint);
+      if (withinFileDuplicateOf === undefined) seen.set(fingerprint, index);
+      output.push({
+        index,
+        record,
+        duplicate: duplicate.isDuplicate || withinFileDuplicateOf !== undefined,
+        duplicateOfId: duplicate.existingId,
+        withinFileDuplicateOf: withinFileDuplicateOf ?? null,
+        include: !duplicate.isDuplicate && withinFileDuplicateOf === undefined
+      });
+    }
+    return output;
+  });
+  return c.json({ filename: body.filename, rows, warningCount: rows.filter((row) => row.duplicate).length });
+});
+
+app.post("/api/imports", async (c) => {
+  const scope = c.get("scope");
+  await assertWithinRateLimit(`import:${scope.userId}`, 10);
+  const body = importCreateBodySchema.parse(await c.req.json());
+  const result = await withTenant(scope, async (tx) => {
+    const selected = body.records.filter((record) => record.include);
+    const batch = await tx.importBatch.create({
+      data: {
+        userId: scope.userId,
+        organizationId: scope.organizationId,
+        filename: body.filename,
+        totalRows: body.records.length,
+        importedRows: selected.length,
+        skippedRows: body.records.length - selected.length
+      }
+    });
+    const transactions = [];
+    for (const record of selected) {
+      const duplicateOfId = await resolveDuplicateOfId(tx, scope, record.duplicateOfId);
+      transactions.push(await tx.transaction.create({
+        data: {
+          userId: scope.userId,
+          organizationId: scope.organizationId,
+          teamId: scope.teamId,
+          date: new Date(`${record.date}T00:00:00.000Z`),
+          description: record.description,
+          type: record.type,
+          amount: record.amount,
+          currencyCode: record.currencyCode,
+          balanceAfter: record.balanceAfter,
+          category: record.category,
+          confidence: record.confidence,
+          status: record.status,
+          accountLabel: record.accountLabel,
+          duplicateOfId,
+          importBatchId: batch.id,
+          source: "CSV",
+          rawText: record.description
+        }
+      }));
+    }
+    return { batch, transactions };
+  });
+  return c.json({ batch: result.batch, transactions: result.transactions.map(presentTransaction) }, 201);
+});
+
+app.get("/api/imports", async (c) => {
+  const scope = c.get("scope");
+  const batches = await withTenant(scope, (tx) => tx.importBatch.findMany({
+    where: { userId: scope.userId, organizationId: scope.organizationId },
+    orderBy: { createdAt: "desc" },
+    take: 50
+  }));
+  return c.json({ batches: batches.map((batch) => ({ ...batch, createdAt: batch.createdAt.toISOString() })) });
+});
+
+app.delete("/api/imports/:id", async (c) => {
+  const scope = c.get("scope");
+  const removed = await withTenant(scope, async (tx) => {
+    const batch = await tx.importBatch.findFirst({ where: { id: c.req.param("id"), userId: scope.userId, organizationId: scope.organizationId } });
+    if (!batch) return null;
+    const deleted = await tx.transaction.deleteMany({ where: { importBatchId: batch.id, userId: scope.userId, organizationId: scope.organizationId } });
+    await tx.importBatch.delete({ where: { id: batch.id } });
+    return deleted.count;
+  });
+  if (removed === null) throw new HTTPException(404, { message: "Import batch not found" });
+  return c.json({ ok: true, deletedTransactions: removed });
 });
 
 app.get("/api/transactions/export", async (c) => {
@@ -282,7 +460,7 @@ app.get("/api/analytics/subscriptions", async (c) => {
 
 app.post("/api/insights/generate", async (c) => {
   const scope = c.get("scope");
-  assertWithinRateLimit(`ai:${scope.userId}`);
+  await assertWithinRateLimit(`ai:${scope.userId}`);
   const body = insightBodySchema.parse(await c.req.json().catch(() => ({})));
   const filters = body.filters ?? {};
 
@@ -433,21 +611,7 @@ const previewBodySchema = z.object({
   accountLabel: z.string().max(60).optional()
 });
 
-const draftInputSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  description: z.string().min(1).max(160),
-  type: z.enum(["DEBIT", "CREDIT"]),
-  amount: z.number(),
-  currencyCode: z.string().min(3).max(3).optional(),
-  balanceAfter: z.number().nullable(),
-  category: z.string().max(60).nullable().optional(),
-  confidence: z.number().min(0).max(1),
-  status: z.enum(["SAVED", "NEEDS_REVIEW"]).optional(),
-  accountLabel: z.string().max(60).optional(),
-  duplicateOfId: z.unknown().optional(),
-  sourceText: z.string().optional(),
-  rawText: z.string().optional()
-}).passthrough();
+const draftInputSchema = transactionInputSchema;
 
 const saveDraftsBodySchema = z.object({
   drafts: z.array(draftInputSchema).min(1).max(100)
@@ -476,6 +640,7 @@ const insightBodySchema = z.object({
     category: z.string().trim().min(1).max(60).optional(),
     status: z.enum(["SAVED", "NEEDS_REVIEW"]).optional(),
     accountLabel: z.string().trim().min(1).max(60).optional(),
+    currencyCode: z.string().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).optional(),
     minConfidence: z.number().min(0).max(1).optional()
   }).optional()
 });
@@ -489,7 +654,8 @@ function parseTransactionFilters(c: Context<{ Variables: Variables }>): Transact
     category: c.req.query("category"),
     status: c.req.query("status"),
     accountLabel: c.req.query("accountLabel"),
-    minConfidence: c.req.query("minConfidence")
+    minConfidence: c.req.query("minConfidence"),
+    currencyCode: c.req.query("currencyCode")
   });
 }
 
@@ -501,6 +667,7 @@ const transactionFiltersSchema = z.object({
   category: z.string().trim().min(1).max(60).optional(),
   status: z.enum(["SAVED", "NEEDS_REVIEW"]).optional(),
   accountLabel: z.string().trim().min(1).max(60).optional(),
+  currencyCode: z.string().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).optional(),
   minConfidence: z
     .string()
     .regex(/^(0(\.\d+)?|1(\.0+)?)$/)
@@ -586,6 +753,10 @@ function cleanAccountLabel(value?: string | null): string {
 function cleanCurrencyCode(value?: string | null): string {
   const normalized = value?.trim().toUpperCase();
   return normalized && /^[A-Z]{3}$/.test(normalized) ? normalized : "INR";
+}
+
+function importFingerprint(record: { date: string; amount: number; description: string; accountLabel?: string }): string {
+  return [record.date, record.amount.toFixed(2), cleanAccountLabel(record.accountLabel), normalizeForMatching(record.description)].join("|");
 }
 
 function toCsv(rows: ReturnType<typeof presentTransaction>[]): string {
@@ -727,5 +898,7 @@ function httpErrorCode(status: number): string {
   if (status === 401) return "UNAUTHORIZED";
   if (status === 403) return "FORBIDDEN";
   if (status === 404) return "NOT_FOUND";
+  if (status === 409) return "CONFLICT";
+  if (status === 429) return "RATE_LIMITED";
   return "HTTP_ERROR";
 }

@@ -11,13 +11,24 @@ describe("analytics and subscription helpers", () => {
     ]);
 
     expect(summary.transactionCount).toBe(3);
-    expect(summary.primaryCurrencyCode).toBe("INR");
-    expect(summary.currencyBreakdown[0]).toMatchObject({ currencyCode: "INR", spend: 1298, income: 100000, net: 98702, count: 3 });
-    expect(summary.totals).toMatchObject({ spend: 1298, income: 100000, net: 98702, debitCount: 2, creditCount: 1 });
-    expect(summary.categoryTotals[0]).toMatchObject({ category: "Entertainment", spend: 1298, count: 2 });
-    expect(summary.merchantTotals[0]).toMatchObject({ merchant: "NETFLIX INDIA", spend: 1298, count: 2 });
+    expect(summary.currencySummaries[0]).toMatchObject({
+      currencyCode: "INR",
+      totals: { spend: 1298, income: 100000, net: 98702, debitCount: 2, creditCount: 1 }
+    });
+    expect(summary.currencySummaries[0]?.categoryTotals[0]).toMatchObject({ category: "Entertainment", spend: 1298, count: 2 });
     expect(summary.duplicateCount).toBe(1);
     expect(summary.reviewCount).toBe(1);
+  });
+
+  it("never combines totals across currencies", () => {
+    const summary = summarizeTransactions([
+      row({ description: "INR ITEM", amount: -100, currencyCode: "INR" }),
+      row({ description: "USD ITEM", amount: -50, currencyCode: "USD" })
+    ]);
+    expect(summary.currencySummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ currencyCode: "INR", totals: expect.objectContaining({ spend: 100 }) }),
+      expect.objectContaining({ currencyCode: "USD", totals: expect.objectContaining({ spend: 50 }) })
+    ]));
   });
 
   it("detects recurring monthly debits and ignores one-off rows", () => {
@@ -71,6 +82,8 @@ function row(overrides: TransactionOverride): Transaction {
     status: overrides.status ?? "SAVED",
     accountLabel: "Personal",
     duplicateOfId: overrides.duplicateOfId ?? null,
+    importBatchId: null,
+    source: "TEXT",
     rawText: "test aggregate row",
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z")

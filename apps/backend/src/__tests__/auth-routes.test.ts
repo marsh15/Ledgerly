@@ -23,11 +23,10 @@ const userB = {
 };
 
 let databaseReady = false;
-let reportedMissingDatabase = false;
 
 beforeAll(async () => {
   databaseReady = await canReachDatabase();
-  if (!databaseReady) return;
+  if (!databaseReady) throw new Error("Postgres is required for DB-backed integration tests. Start the test database and apply migrations before running Jest.");
   await cleanupUsers([userA.email, userB.email]);
 });
 
@@ -242,8 +241,5 @@ async function canReachDatabase(): Promise<boolean> {
 }
 
 function skipDatabaseTest() {
-  if (!reportedMissingDatabase) {
-    reportedMissingDatabase = true;
-    console.warn("Skipping DB-backed auth route tests because DATABASE_URL is not reachable.");
-  }
+  throw new Error("Postgres became unavailable during an integration test.");
 }

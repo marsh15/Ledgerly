@@ -9,6 +9,7 @@ export type TransactionFilters = {
   category?: string | undefined;
   status?: TransactionStatus | undefined;
   accountLabel?: string | undefined;
+  currencyCode?: string | undefined;
   minConfidence?: number | undefined;
 };
 
@@ -26,6 +27,7 @@ export function buildTransactionWhere(scope: TenantScope, filters: TransactionFi
   if (filters.category) where.category = filters.category;
   if (filters.status) where.status = filters.status;
   if (filters.accountLabel) where.accountLabel = filters.accountLabel;
+  if (filters.currencyCode) where.currencyCode = filters.currencyCode;
   if (filters.minConfidence !== undefined) where.confidence = { gte: filters.minConfidence };
 
   if (filters.dateFrom || filters.dateTo) {

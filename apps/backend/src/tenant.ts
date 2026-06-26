@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { HTTPException } from "hono/http-exception";
 import { auth } from "./auth";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { TenantScope } from "./isolation";
 
@@ -19,10 +20,11 @@ export async function getTenantScope(headers: Headers): Promise<TenantScope> {
     });
 
     if (member) {
+      const teamId = await validatedTeamId(userId, member.organizationId, activeTeamId);
       return {
         userId,
         organizationId: member.organizationId,
-        teamId: activeTeamId
+        teamId
       };
     }
   }
@@ -59,47 +61,54 @@ export async function ensurePersonalTenant(user: { id: string; email: string; na
     };
   }
 
-  const orgId = randomUUID();
-  const teamId = randomUUID();
+  const orgId = `personal-${user.id}`;
+  const teamId = `personal-team-${user.id}`;
   const memberId = randomUUID();
   const teamMemberId = randomUUID();
   const nameSeed = user.name || user.email.split("@")[0] || "personal";
   const slug = `${slugify(nameSeed)}-${user.id.slice(0, 8)}`;
 
-  await prisma.$transaction([
-    prisma.organization.create({
-      data: {
-        id: orgId,
-        name: `${nameSeed}'s workspace`,
-        slug,
-        members: {
-          create: {
-            id: memberId,
-            userId: user.id,
-            role: "owner"
-          }
-        },
-        teams: {
-          create: {
-            id: teamId,
-            name: "Personal",
-            members: {
-              create: {
-                id: teamMemberId,
-                userId: user.id
-              }
-            }
-          }
+  try {
+    await prisma.$transaction(async (tx) => {
+      const concurrent = await tx.member.findFirst({ where: { userId: user.id } });
+      if (concurrent) return;
+      await tx.organization.create({
+        data: {
+          id: orgId,
+          name: `${nameSeed}'s workspace`,
+          slug,
+          members: { create: { id: memberId, userId: user.id, role: "owner" } },
+          teams: { create: { id: teamId, name: "Personal", members: { create: { id: teamMemberId, userId: user.id } } } }
         }
-      }
-    }),
-    prisma.session.updateMany({
-      where: { userId: user.id },
-      data: { activeOrganizationId: orgId, activeTeamId: teamId }
-    })
-  ]);
+      });
+      await tx.session.updateMany({ where: { userId: user.id }, data: { activeOrganizationId: orgId, activeTeamId: teamId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || !["P2002", "P2034"].includes(error.code)) throw error;
+  }
 
-  return { userId: user.id, organizationId: orgId, teamId };
+  const provisioned = await prisma.member.findFirst({
+    where: { userId: user.id },
+    include: { organization: { include: { teams: { where: { members: { some: { userId: user.id } } }, take: 1 } } } }
+  });
+  if (!provisioned) throw new Error("Unable to provision personal workspace");
+
+  const resolvedTeamId = provisioned.organization.teams[0]?.id ?? null;
+  await prisma.session.updateMany({
+    where: { userId: user.id },
+    data: { activeOrganizationId: provisioned.organizationId, activeTeamId: resolvedTeamId }
+  });
+
+  return { userId: user.id, organizationId: provisioned.organizationId, teamId: resolvedTeamId };
+}
+
+async function validatedTeamId(userId: string, organizationId: string, teamId: string | null): Promise<string | null> {
+  if (!teamId) return null;
+  const membership = await prisma.teamMember.findFirst({
+    where: { userId, teamId, team: { organizationId } },
+    select: { teamId: true }
+  });
+  return membership?.teamId ?? null;
 }
 
 function slugify(value: string): string {

@@ -98,22 +98,23 @@ export async function generateSpendingInsights(input: {
 export class InsightConfigError extends Error {}
 
 function buildCurrencyContext(summary: AnalyticsSummary) {
-  const currencies = summary.currencyBreakdown.map((item) => ({
+  const currencies = summary.currencySummaries.map((item) => ({
     currencyCode: item.currencyCode,
     symbol: currencySymbol(item.currencyCode),
     example: `${currencySymbol(item.currencyCode)}1,234.56`,
-    count: item.count
+    count: item.totals.debitCount + item.totals.creditCount
   }));
+  const primaryCurrencyCode = currencies[0]?.currencyCode ?? "INR";
 
   return {
-    primaryCurrencyCode: summary.primaryCurrencyCode,
-    primarySymbol: currencySymbol(summary.primaryCurrencyCode),
+    primaryCurrencyCode,
+    primarySymbol: currencySymbol(primaryCurrencyCode),
     isMixedCurrency: currencies.length > 1,
     currencies,
     instruction:
       currencies.length > 1
         ? "This filtered dataset has multiple currencies. Do not convert or combine currencies in prose. Format each amount with its own currency symbol and code when needed."
-        : `Format all monetary values with ${currencySymbol(summary.primaryCurrencyCode)} for ${summary.primaryCurrencyCode}. Do not use $.`
+        : `Format all monetary values with ${currencySymbol(primaryCurrencyCode)} for ${primaryCurrencyCode}.`
   };
 }
 
