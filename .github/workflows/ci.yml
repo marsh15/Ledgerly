@@ -24,6 +24,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://ledgerly_app:ledgerly_app@localhost:5433/ledgerly?schema=public
       DATABASE_MIGRATION_URL: postgresql://ledgerly_migrator:ledgerly@localhost:5433/ledgerly?schema=public
+      DATABASE_MIGRATION_URL_PSQL: postgresql://ledgerly_migrator:ledgerly@localhost:5433/ledgerly
       BETTER_AUTH_SECRET: ci-better-auth-secret-that-is-at-least-32-characters
       BETTER_AUTH_URL: http://localhost:4000
       AUTH_SECRET: ci-next-auth-secret-that-is-at-least-32-characters
@@ -41,11 +42,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: npm ci
       - name: Create non-owner runtime role
-        run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL" -f apps/backend/prisma/init-runtime-role.sql
+        run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL_PSQL" -f apps/backend/prisma/init-runtime-role.sql
       - name: Apply migrations
         run: DATABASE_URL="$DATABASE_MIGRATION_URL" npx prisma migrate deploy --schema apps/backend/prisma/schema.prisma
       - name: Refresh runtime grants
-        run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL" -f apps/backend/prisma/init-runtime-role.sql
+        run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL_PSQL" -f apps/backend/prisma/init-runtime-role.sql
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
