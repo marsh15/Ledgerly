@@ -47,6 +47,7 @@ jobs:
         run: DATABASE_URL="$DATABASE_MIGRATION_URL" npx prisma migrate deploy --schema apps/backend/prisma/schema.prisma
       - name: Refresh runtime grants
         run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL_PSQL" -f apps/backend/prisma/init-runtime-role.sql
+      - run: npm run prisma:generate
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
