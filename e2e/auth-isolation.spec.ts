@@ -17,7 +17,7 @@ test("account switching does not show stale ledger data", async ({ page }) => {
   await dialog.getByLabel("Amount", { exact: true }).fill("420");
   await dialog.getByLabel("Currency", { exact: true }).fill("INR");
   await dialog.getByRole("button", { name: "Add transaction", exact: true }).click();
-  await expect(page.getByText("E2E PRIVATE COFFEE")).toBeVisible();
+  await expect(page.getByRole("table").getByText("E2E PRIVATE COFFEE")).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login/);
