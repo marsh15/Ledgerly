@@ -1,6 +1,6 @@
 # Ledgerly
 
-Ledgerly is a personal finance transaction management app for turning raw bank transaction text into structured, reviewable records. Authenticated users can preview parsed transactions, save reviewed drafts, manage category rules, export CSVs, and access only their own tenant-scoped data.
+Ledgerly is a personal finance transaction management app for turning raw bank transaction text and bank CSV exports into structured, reviewable records. Authenticated users can preview parsed transactions, import and roll back CSV batches, manage category rules, export CSVs, and access only their own tenant-scoped data.
 
 ## Live Demo
 
@@ -40,15 +40,16 @@ Better Auth is the source of truth for registration, login, password hashing, se
 
 - Email/password registration and login
 - Raw bank transaction parsing
+- CSV import with column mapping, duplicate detection, import history, and rollback
 - Preview-before-save workflow for parsed drafts
 - Bulk transaction saving
 - Duplicate detection within the authenticated tenant
 - Category rules for merchant-specific categorization
-- Search, filtering, cursor pagination, and CSV export
-- Production dashboard analytics for monthly trends, category totals, merchant totals, debit/credit totals, review counts, and duplicate counts
+- Search, filtering, cursor pagination, optimistic edits, and CSV export
+- Production dashboard analytics for monthly trends, category totals, merchant totals, debit/credit totals, review counts, and duplicate counts without mixing currencies
 - Computed recurring subscription detection from tenant-scoped transactions
 - Optional OpenAI spending insights generated from aggregates only
-- Tenant-scoped backend queries and PostgreSQL row-level security
+- Tenant-scoped backend queries and PostgreSQL row-level security exercised through a non-owner runtime role
 
 ## Local Setup
 
@@ -79,23 +80,17 @@ Open `http://localhost:3000`.
 
 ```bash
 DATABASE_URL="postgresql://ledgerly:ledgerly@localhost:5433/ledgerly?schema=public"
+DATABASE_MIGRATION_URL="postgresql://ledgerly_migrator:ledgerly@localhost:5433/ledgerly?schema=public"
 BETTER_AUTH_SECRET="replace-with-at-least-32-random-characters"
 BETTER_AUTH_URL="http://localhost:4000"
-JWT_SECRET="replace-with-at-least-32-random-characters-if-you-enable-custom-jwt-signing"
 FRONTEND_URL="http://localhost:3000"
-NODE_ENV="development"
 AUTH_SECRET="replace-with-at-least-32-random-characters-for-authjs"
 AUTH_URL="http://localhost:3000"
-FRONTEND_ORIGIN="http://localhost:3000"
 NEXT_PUBLIC_BACKEND_URL="http://localhost:4000"
-NEXT_PUBLIC_API_URL="http://localhost:4000"
 BACKEND_INTERNAL_URL="http://localhost:4000"
-AI_INSIGHTS_ENABLED="false"
-OPENAI_API_KEY=""
-OPENAI_MODEL="gpt-4.1-mini"
 ```
 
-`FRONTEND_ORIGIN` and `NEXT_PUBLIC_API_URL` are kept for compatibility. `FRONTEND_URL` and `NEXT_PUBLIC_BACKEND_URL` are the primary frontend/backend URL variables.
+`DATABASE_URL` should point at the non-owner runtime role so row-level security is actually enforced. `DATABASE_MIGRATION_URL` is the owner/migrator connection used for Prisma migrations and grants.
 
 ## Commands
 
@@ -110,7 +105,7 @@ npm run prisma:push
 npm run seed
 ```
 
-Use `prisma:migrate` for normal local setup. `prisma:push` is available for disposable databases.
+Use `DATABASE_URL="$DATABASE_MIGRATION_URL" npm run prisma:migrate` for normal local setup when your `.env` uses the runtime role. `prisma:push` is available for disposable databases.
 
 ## Demo Users
 
@@ -130,8 +125,13 @@ POST /api/transactions/preview
 POST /api/transactions
 POST /api/transactions/extract
 GET /api/transactions?limit=10&cursor=<opaque_cursor>
+PATCH /api/transactions/:id
 GET /api/transactions/export
 DELETE /api/transactions/:id
+POST /api/imports/preview
+POST /api/imports
+GET /api/imports
+DELETE /api/imports/:id
 GET /api/analytics/summary
 GET /api/analytics/subscriptions
 POST /api/insights/generate
@@ -141,11 +141,11 @@ PATCH /api/category-rules/:id
 DELETE /api/category-rules/:id
 ```
 
-All transaction and category-rule endpoints are protected. The backend derives `userId`, `organizationId`, and `teamId` from the verified Better Auth session. Client-supplied ownership fields are ignored.
+All transaction, import, and category-rule endpoints are protected. The backend derives `userId`, `organizationId`, and `teamId` from the verified Better Auth session. Client-supplied ownership fields are ignored.
 
 ### Analytics And Subscriptions
 
-`GET /api/analytics/summary` accepts the same filters as transaction listing and returns tenant-scoped totals, monthly series, category totals, merchant totals, duplicate count, review count, and transaction count.
+`GET /api/analytics/summary` accepts the same filters as transaction listing and returns tenant-scoped currency summaries, monthly series, category totals, merchant totals, duplicate count, review count, and transaction count. Totals are grouped by currency code rather than combined across currencies.
 
 `GET /api/analytics/subscriptions` accepts the same filters and returns computed recurring debit candidates with merchant, amount, cadence, last charge date, confidence, and transaction count. v1 does not persist a subscription table.
 

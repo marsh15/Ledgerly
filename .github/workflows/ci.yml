@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ledgerly_migrator
+          POSTGRES_PASSWORD: ledgerly
+          POSTGRES_DB: ledgerly
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ledgerly_migrator -d ledgerly"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ledgerly_app:ledgerly_app@localhost:5433/ledgerly?schema=public
+      DATABASE_MIGRATION_URL: postgresql://ledgerly_migrator:ledgerly@localhost:5433/ledgerly?schema=public
+      DATABASE_MIGRATION_URL_PSQL: postgresql://ledgerly_migrator:ledgerly@localhost:5433/ledgerly
+      BETTER_AUTH_SECRET: ci-better-auth-secret-that-is-at-least-32-characters
+      BETTER_AUTH_URL: http://localhost:4000
+      AUTH_SECRET: ci-next-auth-secret-that-is-at-least-32-characters
+      AUTH_URL: http://localhost:3000
+      FRONTEND_URL: http://localhost:3000
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:4000
+      BACKEND_INTERNAL_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: npm ci
+      - name: Create non-owner runtime role
+        run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL_PSQL" -f apps/backend/prisma/init-runtime-role.sql
+      - name: Apply migrations
+        run: DATABASE_URL="$DATABASE_MIGRATION_URL" npx prisma migrate deploy --schema apps/backend/prisma/schema.prisma
+      - name: Refresh runtime grants
+        run: PGPASSWORD=ledgerly psql "$DATABASE_MIGRATION_URL_PSQL" -f apps/backend/prisma/init-runtime-role.sql
+      - run: npm run prisma:generate
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

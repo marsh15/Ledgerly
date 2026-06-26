@@ -16,12 +16,12 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --font-sans: var(--font-geist), "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "Geist Mono Fallback", ui-monospace, monospace;
 }
 
 :root {
-  --background: 42 38% 98%;
+  --background: 0 0% 100%;
   --foreground: 221 42% 10%;
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
@@ -29,7 +29,7 @@
   --primary-foreground: 0 0% 100%;
   --secondary: 160 32% 94%;
   --secondary-foreground: 222 47% 11%;
-  --muted: 42 28% 95%;
+  --muted: 210 20% 97%;
   --muted-foreground: 218 15% 43%;
   --accent: 38 88% 93%;
   --accent-foreground: 33 76% 24%;
@@ -51,6 +51,28 @@ body {
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
   text-rendering: geometricPrecision;
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+.form-control {
+  display: flex;
+  height: 2.75rem;
+  width: 100%;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  outline: none;
+}
+
+.form-control:focus-visible {
+  border-color: hsl(var(--primary) / 0.45);
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
 }
 
 ::selection {

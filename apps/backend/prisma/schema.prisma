@@ -22,6 +22,7 @@ model User {
   invitations   Invitation[]  @relation("InvitationInviter")
   transactions  Transaction[]
   categoryRules CategoryRule[]
+  importBatches ImportBatch[]
 
   @@map("user")
 }
@@ -100,6 +101,7 @@ model Organization {
   teams        Team[]
   transactions Transaction[]
   categoryRules CategoryRule[]
+  importBatches ImportBatch[]
 
   @@map("organization")
 }
@@ -177,11 +179,16 @@ model Transaction {
   status         TransactionStatus @default(SAVED)
   accountLabel   String       @default("Personal")
   duplicateOfId  String?
+  importBatchId  String?
+  source         TransactionSource @default(TEXT)
   rawText        String
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  importBatch    ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  duplicateOf    Transaction? @relation("TransactionDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates     Transaction[] @relation("TransactionDuplicates")
 
   @@index([userId, createdAt])
   @@index([organizationId, createdAt])
@@ -192,7 +199,26 @@ model Transaction {
   @@index([organizationId, status])
   @@index([organizationId, category])
   @@index([organizationId, accountLabel])
+  @@index([userId, organizationId, importBatchId])
+  @@index([duplicateOfId])
   @@map("transaction")
+}
+
+model ImportBatch {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  filename       String
+  totalRows      Int
+  importedRows   Int
+  skippedRows    Int
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
+
+  @@index([userId, organizationId, createdAt])
+  @@map("import_batch")
 }
 
 model CategoryRule {
@@ -221,4 +247,10 @@ enum TransactionType {
 enum TransactionStatus {
   SAVED
   NEEDS_REVIEW
+}
+
+enum TransactionSource {
+  TEXT
+  CSV
+  MANUAL
 }

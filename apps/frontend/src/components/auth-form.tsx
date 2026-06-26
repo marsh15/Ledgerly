@@ -66,8 +66,8 @@ export function AuthForm({ mode }: AuthFormProps) {
     }
 
     toast.success(successMessage);
-    router.push("/");
     router.refresh();
+    router.push("/overview");
   }
 
   return (
