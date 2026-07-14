@@ -111,6 +111,7 @@ export type CurrencySummary = {
   totals: { spend: number; income: number; net: number; debitCount: number; creditCount: number };
   monthlySeries: Array<{ month: string; spend: number; income: number; net: number; count: number }>;
   categoryTotals: Array<{ category: string; spend: number; income: number; count: number }>;
+  merchantTotals: Array<{ merchant: string; spend: number; income: number; count: number }>;
 };
 
 export type AnalyticsResponse = {

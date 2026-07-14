@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidIsoDate } from "./contracts";
 
 const monthIndex: Record<string, number> = {
   jan: 0,
@@ -28,18 +29,24 @@ const monthIndex: Record<string, number> = {
 };
 
 export const extractedTransactionSchema = z.object({
-  date: z.string(),
-  description: z.string().min(1),
-  amount: z.number(),
-  currencyCode: z.string().min(3).max(3),
-  type: z.enum(["DEBIT", "CREDIT"]),
+  date: z.string().nullable(),
+  description: z.string().min(1).nullable(),
+  amount: z.number().nullable(),
+  currencyCode: z.string().min(3).max(3).nullable(),
+  type: z.enum(["DEBIT", "CREDIT"]).nullable(),
   balanceAfter: z.number().nullable(),
   category: z.string().nullable(),
   confidence: z.number().min(0).max(1),
-  rawText: z.string().min(1)
+  rawText: z.string().min(1),
+  issues: z.array(z.object({
+    field: z.enum(["date", "description", "amount", "type", "currencyCode"]),
+    code: z.string(),
+    message: z.string()
+  }))
 });
 
 export type ExtractedTransaction = z.infer<typeof extractedTransactionSchema>;
+export type ExtractionIssue = ExtractedTransaction["issues"][number];
 
 export type CategoryRuleInput = {
   matchText: string;
@@ -72,11 +79,18 @@ export function extractTransaction(rawText: string, options: ExtractTransactionO
   const amountHit = findAmount(text);
   const currencyCode = amountHit?.currencyCode ?? findCurrencyCode(text);
   const type = findTransactionType(text, amountHit?.value ?? null);
-  const amount = normalizeAmount(amountHit?.value ?? 0, type);
+  const validAmount = amountHit && Number.isFinite(amountHit.value) && amountHit.value !== 0 ? amountHit.value : null;
+  const amount = validAmount !== null && type ? normalizeAmount(validAmount, type) : validAmount;
   const balanceAfter = findBalance(text);
-  const description = findDescription(text, dateHit?.raw, amountHit?.raw);
+  const description = findDescription(text, dateHit?.raw, amountHit?.raw) || null;
   const explicitCategory = findCategory(text);
-  const category = resolveCategory(description, explicitCategory, options);
+  const category = resolveCategory(description ?? "", explicitCategory, options);
+  const issues: ExtractionIssue[] = [];
+  if (!dateHit) issues.push({ field: "date", code: "MISSING_OR_INVALID_DATE", message: "Add a valid calendar date." });
+  if (!description) issues.push({ field: "description", code: "MISSING_DESCRIPTION", message: "Add a transaction description." });
+  if (!amountHit || !Number.isFinite(amountHit.value) || amountHit.value === 0) issues.push({ field: "amount", code: "MISSING_OR_INVALID_AMOUNT", message: "Add a non-zero transaction amount." });
+  if (!type) issues.push({ field: "type", code: "MISSING_TYPE", message: "Choose debit or credit; the amount was ambiguous." });
+  if (!currencyCode) issues.push({ field: "currencyCode", code: "MISSING_CURRENCY", message: "Add an explicit currency code or symbol." });
 
   const confidence =
     (dateHit ? 0.25 : 0) +
@@ -87,7 +101,7 @@ export function extractTransaction(rawText: string, options: ExtractTransactionO
     (category ? 0.05 : 0);
 
   return extractedTransactionSchema.parse({
-    date: dateHit?.iso ?? new Date().toISOString().slice(0, 10),
+    date: dateHit?.iso ?? null,
     description,
     amount,
     currencyCode,
@@ -95,7 +109,8 @@ export function extractTransaction(rawText: string, options: ExtractTransactionO
     balanceAfter,
     category,
     confidence: Number(confidence.toFixed(2)),
-      rawText
+    rawText,
+    issues
   });
 }
 
@@ -141,14 +156,16 @@ export function normalizeForMatching(value: string): string {
 function findDate(text: string): DateHit | null {
   const iso = /\b(20\d{2})-(0?[1-9]|1[0-2])-(0?[1-9]|[12]\d|3[01])\b/.exec(text);
   if (iso?.[0] && iso[1] && iso[2] && iso[3]) {
-    return { raw: iso[0], iso: toIso(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])), index: iso.index };
+    const value = `${iso[1]}-${String(iso[2]).padStart(2, "0")}-${String(iso[3]).padStart(2, "0")}`;
+    return isValidIsoDate(value) ? { raw: iso[0], iso: value, index: iso.index } : null;
   }
 
   const named = /\b(?:Date:\s*)?([0-3]?\d)\s+([A-Za-z]{3,9})\s+(20\d{2})\b/i.exec(text);
   if (named?.[0] && named[1] && named[2] && named[3]) {
     const month = monthIndex[named[2].toLowerCase()];
     if (month !== undefined) {
-      return { raw: named[0], iso: toIso(Number(named[3]), month, Number(named[1])), index: named.index };
+      const value = toIso(Number(named[3]), month, Number(named[1]));
+      return value ? { raw: named[0], iso: value, index: named.index } : null;
     }
   }
 
@@ -159,17 +176,19 @@ function findDate(text: string): DateHit | null {
     const dayFirst = first > 12;
     const day = dayFirst ? first : second;
     const month = dayFirst ? second - 1 : first - 1;
-    return { raw: numeric[0], iso: toIso(Number(numeric[3]), month, day), index: numeric.index };
+    const value = toIso(Number(numeric[3]), month, day);
+    return value ? { raw: numeric[0], iso: value, index: numeric.index } : null;
   }
 
   return null;
 }
 
-function findTransactionType(text: string, amount: number | null): "DEBIT" | "CREDIT" {
+function findTransactionType(text: string, amount: number | null): "DEBIT" | "CREDIT" | null {
   if (amount !== null && amount < 0) return "DEBIT";
+  if (amount !== null && /(?:\+\s*(?:(?:₹|\$|Rs\.?|USD|INR)\s*)?[\d,]|(?:₹|\$|Rs\.?|USD|INR)\s*\+\s*[\d,])/i.test(text)) return "CREDIT";
   if (/\b(debit(?:ed)?|dr|withdrawn|spent|paid)\b/i.test(text)) return "DEBIT";
   if (/\b(credit(?:ed)?|cr|deposit(?:ed)?|received)\b/i.test(text)) return "CREDIT";
-  return amount !== null && amount > 0 ? "CREDIT" : "DEBIT";
+  return null;
 }
 
 function normalizeAmount(amount: number, type: "DEBIT" | "CREDIT"): number {
@@ -177,8 +196,8 @@ function normalizeAmount(amount: number, type: "DEBIT" | "CREDIT"): number {
   return Math.abs(amount);
 }
 
-function findAmount(text: string): { raw: string; value: number; index: number; currencyCode: string } | null {
-  const labelled = /\bAmount:\s*([+-]?(?:₹|\$|Rs\.?\s*|USD\s*)?[\d,]+(?:\.\d{2})?)\b/i.exec(text);
+function findAmount(text: string): { raw: string; value: number; index: number; currencyCode: string | null } | null {
+  const labelled = /\bAmount:\s*((?:(?:₹|\$|Rs\.?|USD|INR)\s*)?[+-]?[\d,]+(?:\.\d{2})?)\b/i.exec(text);
   if (labelled?.[0] && labelled[1]) {
     return {
       raw: labelled[0],
@@ -299,17 +318,17 @@ function cleanAccountLabel(value?: string): string {
 }
 
 function parseMoney(value: string): number {
-  const normalized = value.replace(/₹|\$|rs\.?|usd/gi, "").replace(/[,\s]/g, "");
+  const normalized = value.replace(/₹|\$|rs\.?|usd|inr/gi, "").replace(/[,\s]/g, "");
   return Number(normalized);
 }
 
-function findCurrencyCode(value: string): string {
+function findCurrencyCode(value: string): string | null {
   if (/(₹|\brs\.?\b|\binr\b)/i.test(value)) return "INR";
   if (/(\$|\busd\b)/i.test(value)) return "USD";
-  return "INR";
+  return null;
 }
 
-function toIso(year: number, month: number, day: number): string {
-  const date = new Date(Date.UTC(year, month, day));
-  return date.toISOString().slice(0, 10);
+function toIso(year: number, month: number, day: number): string | null {
+  const value = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isValidIsoDate(value) ? value : null;
 }

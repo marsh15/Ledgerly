@@ -4,7 +4,7 @@ describe("extractTransaction", () => {
   it("parses the labelled Starbucks sample", () => {
     const result = extractTransaction(`Date: 11 Dec 2025
 Description: STARBUCKS COFFEE MUMBAI
-Amount: -420.00
+Amount: INR -420.00
 Balance after transaction: 18,420.50`);
 
     expect(result).toMatchObject({
@@ -15,7 +15,8 @@ Balance after transaction: 18,420.50`);
       type: "DEBIT",
       balanceAfter: 18420.5,
       category: null,
-      confidence: 0.95
+      confidence: 0.95,
+      issues: []
     });
   });
 
@@ -92,10 +93,23 @@ Category: Cloud`);
       description: "AWS CLOUD SERVICES",
       amount: 42.5,
       currencyCode: "USD",
-      type: "CREDIT",
+      type: null,
       balanceAfter: 1250,
       category: "Cloud"
     });
+    expect(result.issues).toEqual([expect.objectContaining({ field: "type" })]);
+  });
+
+  it("keeps missing and impossible required fields unset with explicit issues", () => {
+    const result = extractTransaction("2026-02-30 Description: Mystery Amount: 42.00");
+    expect(result).toMatchObject({ date: null, amount: 42, type: null, currencyCode: null });
+    expect(result.issues.map((issue) => issue.field)).toEqual(expect.arrayContaining(["date", "type", "currencyCode"]));
+  });
+
+  it("keeps a zero amount unset instead of manufacturing a transaction value", () => {
+    const result = extractTransaction("2026-02-20 Description: Test Amount: INR 0.00 debit");
+    expect(result.amount).toBeNull();
+    expect(result.issues).toContainEqual(expect.objectContaining({ field: "amount" }));
   });
 
   it("creates editable drafts from blank-line-separated bulk input", () => {

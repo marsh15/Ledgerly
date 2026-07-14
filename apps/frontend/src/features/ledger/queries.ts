@@ -47,6 +47,10 @@ export function useLedgerMutations(token: string, userId: string) {
       mutationFn: (record: TransactionInput) => apiFetch("/api/transactions", token, { method: "POST", body: JSON.stringify({ drafts: [{ ...record, confidence: 1, source: "MANUAL" }] }) }),
       onSuccess: refresh
     }),
+    saveTextDrafts: useMutation({
+      mutationFn: (drafts: TransactionInput[]) => apiFetch("/api/transactions", token, { method: "POST", body: JSON.stringify({ drafts }) }),
+      onSuccess: refresh
+    }),
     editTransaction: useMutation({
       mutationFn: ({ id, input }: { id: string; input: Record<string, unknown> }) => apiFetch(`/api/transactions/${id}`, token, { method: "PATCH", body: JSON.stringify(input) }),
       onSuccess: refresh

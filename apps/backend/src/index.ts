@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import {
   createTransactionDrafts,
   extractTransaction,
@@ -6,6 +7,7 @@ import {
   importPreviewBodySchema,
   normalizeForMatching,
   reviewStatusForConfidence,
+  serializeCsvCell,
   transactionInputSchema,
   transactionUpdateSchema
 } from "@ledgerly/shared";
@@ -20,17 +22,20 @@ import { auth } from "./auth";
 import { prisma, withTenant } from "./db";
 import { env } from "./env";
 import { generateSpendingInsights, InsightConfigError } from "./openai-insights";
-import { assertWithinRateLimit } from "./rate-limit";
+import { assertWithinRateLimit, checkRateLimiterReadiness, initializeRateLimiter, RateLimitExceededError } from "./rate-limit";
+import { requestIp, securityHash, securityLog } from "./security";
 import { detectSubscriptions } from "./subscriptions";
 import { getTenantScope, ensurePersonalTenant } from "./tenant";
 import { buildTransactionWhere, type TransactionFilters } from "./transaction-query";
 import { presentTransaction } from "./transaction-presenter";
+import { writeAuditEvent } from "./audit";
 
 type Variables = {
   scope: Awaited<ReturnType<typeof getTenantScope>>;
 };
 
 export const app = new Hono<{ Variables: Variables }>();
+export const rateLimiterReady = initializeRateLimiter(env.redisUrl);
 
 app.use(
   "*",
@@ -65,6 +70,8 @@ app.use("*", async (c, next) => {
 app.get("/health", (c) => c.json({ ok: true }));
 app.get("/ready", async (c) => {
   try {
+    await rateLimiterReady;
+    await checkRateLimiterReadiness();
     await prisma.$queryRaw`SELECT 1`;
     return c.json({ ok: true });
   } catch {
@@ -74,6 +81,7 @@ app.get("/ready", async (c) => {
 
 app.post("/api/auth/register", async (c) => {
   const body = registerBodySchema.parse(await c.req.json());
+  const identifiers = authIdentifiers(c, body.email);
   const response = await forwardToBetterAuth(c.req.raw, "/api/auth/sign-up/email", {
     name: body.name || body.email.split("@")[0],
     email: body.email,
@@ -81,6 +89,7 @@ app.post("/api/auth/register", async (c) => {
   });
 
   const payload = await response.clone().json().catch(() => null) as AuthPayload | null;
+  securityLog("security.register", { ...identifiers, requestId: requestId(c), success: response.ok });
   if (!response.ok || !payload) return authErrorResponse(response, "Unable to create account. Check your email and password, then try again.");
 
   const authResult = authResultFrom(response, payload);
@@ -99,11 +108,21 @@ app.post("/api/auth/register", async (c) => {
 
 app.post("/api/auth/login", async (c) => {
   const body = loginBodySchema.parse(await c.req.json());
+  await awaitRateLimiter();
+  const identifiers = authIdentifiers(c, body.email);
+  try {
+    await assertWithinRateLimit(`login:email-ip:${identifiers.emailHash}:${identifiers.ipHash}`, 5, 15 * 60_000);
+    await assertWithinRateLimit(`login:ip:${identifiers.ipHash}`, 30, 15 * 60_000);
+  } catch (error) {
+    securityLog("security.rate_limit_denied", { ...identifiers, requestId: requestId(c), route: "login" });
+    throw error;
+  }
   const response = await forwardToBetterAuth(c.req.raw, "/api/auth/sign-in/email", {
     email: body.email,
     password: body.password
   });
 
+  securityLog("security.login", { ...identifiers, requestId: requestId(c), success: response.ok });
   if (!response.ok) return authErrorResponse(response, "Email or password did not match an account.");
   const payload = await response.clone().json().catch(() => null) as AuthPayload | null;
   const authResult = authResultFrom(response, payload);
@@ -118,6 +137,15 @@ app.post("/api/auth/login", async (c) => {
     token: authResult.token,
     jwt: response.headers.get("set-auth-jwt")
   });
+});
+
+app.post("/api/auth/logout", async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+  const identifiers = authIdentifiers(c, session?.user.email);
+  const response = await forwardToBetterAuth(c.req.raw, "/api/auth/sign-out", {});
+  securityLog("security.logout", { ...identifiers, requestId: requestId(c), success: response.ok });
+  if (!response.ok) return authErrorResponse(response, "Ledgerly could not revoke the backend session.");
+  return withAuthHeaders(response, { ok: true });
 });
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
@@ -173,8 +201,7 @@ app.post("/api/transactions", async (c) => {
 
     for (const draft of body.drafts) {
       const duplicateOfId = await resolveDuplicateOfId(tx, scope, draft.duplicateOfId);
-      transactions.push(
-        await tx.transaction.create({
+      const created = await tx.transaction.create({
           data: {
             userId: scope.userId,
             organizationId: scope.organizationId,
@@ -190,11 +217,12 @@ app.post("/api/transactions", async (c) => {
             status: draft.status ?? reviewStatusForConfidence(draft.confidence),
             accountLabel: cleanAccountLabel(draft.accountLabel),
             duplicateOfId,
-            source: "TEXT",
+            source: draft.source,
             rawText: draft.sourceText ?? draft.rawText ?? draft.description
           }
-        })
-      );
+        });
+      await writeAuditEvent(tx, scope, { action: "TRANSACTION_CREATE", resourceId: created.id, requestId: requestId(c), metadata: { source: created.source, status: created.status } });
+      transactions.push(created);
     }
 
     return transactions;
@@ -212,16 +240,17 @@ app.post("/api/transactions/extract", async (c) => {
     const rules = await getCategoryRules(tx, scope);
     const extracted = extractTransaction(body.text, { categoryRules: rules, enableBuiltInCategories: true });
     const duplicate = await findDuplicate(tx, scope, { ...extracted, accountLabel: body.accountLabel ?? "Personal" });
+    const validated = transactionInputSchema.parse({ ...extracted, accountLabel: body.accountLabel, source: "TEXT" });
     const saved = await tx.transaction.create({
       data: {
         userId: scope.userId,
         organizationId: scope.organizationId,
         teamId: scope.teamId,
-        date: new Date(`${extracted.date}T00:00:00.000Z`),
-        description: extracted.description,
-        type: extracted.type,
-        amount: extracted.amount,
-        currencyCode: extracted.currencyCode,
+        date: new Date(`${validated.date}T00:00:00.000Z`),
+        description: validated.description,
+        type: validated.type,
+        amount: validated.amount,
+        currencyCode: validated.currencyCode,
         balanceAfter: extracted.balanceAfter,
         category: extracted.category,
         confidence: extracted.confidence,
@@ -232,6 +261,7 @@ app.post("/api/transactions/extract", async (c) => {
         rawText: body.text
       }
     });
+    await writeAuditEvent(tx, scope, { action: "TRANSACTION_CREATE", resourceId: saved.id, requestId: requestId(c), metadata: { source: "TEXT", status: saved.status } });
     return { saved, duplicate };
   });
 
@@ -279,7 +309,9 @@ app.patch("/api/transactions/:id", async (c) => {
       }
     });
     if (result.count === 0) throw new HTTPException(409, { message: "This transaction changed after you opened it. Refresh and try again." });
-    return tx.transaction.findUniqueOrThrow({ where: { id: existing.id } });
+    const updated = await tx.transaction.findUniqueOrThrow({ where: { id: existing.id } });
+    await writeAuditEvent(tx, scope, { action: "TRANSACTION_UPDATE", resourceId: existing.id, requestId: requestId(c), metadata: { status: updated.status } });
+    return updated;
   });
   if (!updated) throw new HTTPException(404, { message: "Transaction not found" });
   return c.json({ transaction: presentTransaction(updated) });
@@ -352,6 +384,7 @@ app.post("/api/imports", async (c) => {
         }
       }));
     }
+    await writeAuditEvent(tx, scope, { action: "IMPORT_COMMIT", resourceId: batch.id, requestId: requestId(c), metadata: { importedRows: selected.length, skippedRows: body.records.length - selected.length } });
     return { batch, transactions };
   });
   return c.json({ batch: result.batch, transactions: result.transactions.map(presentTransaction) }, 201);
@@ -373,6 +406,7 @@ app.delete("/api/imports/:id", async (c) => {
     const batch = await tx.importBatch.findFirst({ where: { id: c.req.param("id"), userId: scope.userId, organizationId: scope.organizationId } });
     if (!batch) return null;
     const deleted = await tx.transaction.deleteMany({ where: { importBatchId: batch.id, userId: scope.userId, organizationId: scope.organizationId } });
+    await writeAuditEvent(tx, scope, { action: "IMPORT_ROLLBACK", resourceId: batch.id, requestId: requestId(c), metadata: { deletedTransactions: deleted.count } });
     await tx.importBatch.delete({ where: { id: batch.id } });
     return deleted.count;
   });
@@ -505,6 +539,7 @@ app.delete("/api/transactions/:id", async (c) => {
     if (!existing) return false;
 
     await tx.transaction.delete({ where: { id: existing.id } });
+    await writeAuditEvent(tx, scope, { action: "TRANSACTION_DELETE", resourceId: existing.id, requestId: requestId(c) });
     return true;
   });
   if (!deleted) throw new HTTPException(404, { message: "Transaction not found" });
@@ -524,7 +559,8 @@ app.get("/api/category-rules", async (c) => {
 app.post("/api/category-rules", async (c) => {
   const scope = c.get("scope");
   const body = categoryRuleBodySchema.parse(await c.req.json());
-  const rule = await withTenant(scope, (tx) => tx.categoryRule.upsert({
+  const rule = await withTenant(scope, async (tx) => {
+    const rule = await tx.categoryRule.upsert({
     where: {
       organizationId_matchText: {
         organizationId: scope.organizationId,
@@ -540,7 +576,10 @@ app.post("/api/category-rules", async (c) => {
     update: {
       category: body.category.trim()
     }
-  }));
+    });
+    await writeAuditEvent(tx, scope, { action: "CATEGORY_RULE_UPSERT", resourceId: rule.id, requestId: requestId(c), metadata: { category: rule.category } });
+    return rule;
+  });
 
   return c.json({ rule }, 201);
 });
@@ -554,13 +593,15 @@ app.patch("/api/category-rules/:id", async (c) => {
     });
     if (!existing) return null;
 
-    return tx.categoryRule.update({
+    const updated = await tx.categoryRule.update({
       where: { id: existing.id },
       data: {
         matchText: body.matchText.trim(),
         category: body.category.trim()
       }
     });
+    await writeAuditEvent(tx, scope, { action: "CATEGORY_RULE_UPDATE", resourceId: updated.id, requestId: requestId(c), metadata: { category: updated.category } });
+    return updated;
   });
   if (!rule) throw new HTTPException(404, { message: "Category rule not found" });
 
@@ -576,6 +617,7 @@ app.delete("/api/category-rules/:id", async (c) => {
     if (!existing) return false;
 
     await tx.categoryRule.delete({ where: { id: existing.id } });
+    await writeAuditEvent(tx, scope, { action: "CATEGORY_RULE_DELETE", resourceId: existing.id, requestId: requestId(c) });
     return true;
   });
   if (!deleted) throw new HTTPException(404, { message: "Category rule not found" });
@@ -583,6 +625,7 @@ app.delete("/api/category-rules/:id", async (c) => {
 });
 
 app.onError((error, c) => {
+  if (error instanceof RateLimitExceededError) c.header("Retry-After", String(error.retryAfterSeconds));
   if (error instanceof HTTPException) {
     return c.json({ error: { code: httpErrorCode(error.status), message: error.message } }, error.status);
   }
@@ -688,9 +731,9 @@ async function getCategoryRules(tx: TenantDb, scope: Variables["scope"]) {
 async function findDuplicate(
   tx: TenantDb,
   scope: Variables["scope"],
-  draft: { date?: string; amount?: number; description?: string; accountLabel?: string }
+  draft: { date?: string | null; amount?: number | null; description?: string | null; accountLabel?: string }
 ): Promise<{ isDuplicate: boolean; existingId: string | null }> {
-  if (!draft.date || draft.amount === undefined || !draft.description) {
+  if (!draft.date || draft.amount == null || !draft.description) {
     return { isDuplicate: false, existingId: null };
   }
 
@@ -761,17 +804,13 @@ function importFingerprint(record: { date: string; amount: number; description: 
 
 function toCsv(rows: ReturnType<typeof presentTransaction>[]): string {
   const headers = ["date", "description", "amount", "currencyCode", "type", "balanceAfter", "category", "confidence", "status", "accountLabel", "createdAt"];
+  const guardedTextFields = new Set(["description", "category", "accountLabel"]);
   const body = rows.map((row) =>
     headers
-      .map((header) => csvCell(String(row[header as keyof typeof row] ?? "")))
+      .map((header) => serializeCsvCell(row[header as keyof typeof row] as string | number | null, guardedTextFields.has(header)))
       .join(",")
   );
   return [headers.join(","), ...body].join("\n");
-}
-
-function csvCell(value: string): string {
-  if (!/[",\n]/.test(value)) return value;
-  return `"${value.replace(/"/g, '""')}"`;
 }
 
 type AuthPayload = {
@@ -901,4 +940,22 @@ function httpErrorCode(status: number): string {
   if (status === 409) return "CONFLICT";
   if (status === 429) return "RATE_LIMITED";
   return "HTTP_ERROR";
+}
+
+function requestId(c: Context): string {
+  return c.res.headers.get("x-request-id") || c.req.header("x-request-id") || "unknown";
+}
+
+function authIdentifiers(c: Context, email?: string): { emailHash?: string; ipHash: string } {
+  let directAddress: string | undefined;
+  try { directAddress = getConnInfo(c).remote.address; } catch { directAddress = undefined; }
+  return {
+    ...(email ? { emailHash: securityHash(email) } : {}),
+    ipHash: securityHash(requestIp(c.req.raw.headers, env.trustProxyHeaders, directAddress))
+  };
+}
+
+async function awaitRateLimiter(): Promise<void> {
+  try { await rateLimiterReady; }
+  catch { throw new HTTPException(503, { message: "Request limiting is temporarily unavailable." }); }
 }

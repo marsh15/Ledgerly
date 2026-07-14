@@ -239,6 +239,21 @@ model CategoryRule {
   @@map("category_rule")
 }
 
+model AuditEvent {
+  id             String       @id @default(cuid())
+  actorId        String
+  organizationId String
+  action         String
+  resourceType   String
+  resourceId     String?
+  requestId      String
+  metadata       Json
+  createdAt      DateTime     @default(now())
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_event")
+}
+
 enum TransactionType {
   DEBIT
   CREDIT

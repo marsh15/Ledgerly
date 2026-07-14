@@ -2,6 +2,7 @@ import type { Prisma, Transaction } from "@prisma/client";
 import type { AnalyticsResponse, CurrencySummary } from "@ledgerly/shared";
 import type { TenantScope } from "./isolation";
 import { buildTransactionWhere, type TransactionFilters } from "./transaction-query";
+import { normalizeMerchant } from "./merchant";
 
 type TenantDb = Prisma.TransactionClient;
 export type AnalyticsSummary = AnalyticsResponse;
@@ -20,6 +21,7 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     totals: CurrencySummary["totals"];
     monthly: Map<string, CurrencySummary["monthlySeries"][number]>;
     categories: Map<string, CurrencySummary["categoryTotals"][number]>;
+    merchants: Map<string, CurrencySummary["merchantTotals"][number]>;
   }>();
   let duplicateCount = 0;
   let reviewCount = 0;
@@ -29,7 +31,8 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     const bucket = currencies.get(currencyCode) ?? {
       totals: { spend: 0, income: 0, net: 0, debitCount: 0, creditCount: 0 },
       monthly: new Map(),
-      categories: new Map()
+      categories: new Map(),
+      merchants: new Map()
     };
     const amount = Number(row.amount);
     const spend = row.type === "DEBIT" ? Math.abs(amount) : 0;
@@ -54,6 +57,13 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     categoryTotal.income += income;
     categoryTotal.count += 1;
     bucket.categories.set(category, categoryTotal);
+
+    const merchant = normalizeMerchant(row.description) || "UNKNOWN";
+    const merchantTotal = bucket.merchants.get(merchant) ?? { merchant, spend: 0, income: 0, count: 0 };
+    merchantTotal.spend += spend;
+    merchantTotal.income += income;
+    merchantTotal.count += 1;
+    bucket.merchants.set(merchant, merchantTotal);
     currencies.set(currencyCode, bucket);
     if (row.duplicateOfId) duplicateCount += 1;
     if (row.status === "NEEDS_REVIEW") reviewCount += 1;
@@ -63,7 +73,11 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     currencyCode,
     totals: roundMoneyObject(bucket.totals),
     monthlySeries: [...bucket.monthly.values()].map(roundMoneyObject),
-    categoryTotals: [...bucket.categories.values()].sort((a, b) => b.spend - a.spend).slice(0, 12).map(roundMoneyObject)
+    categoryTotals: [...bucket.categories.values()].sort((a, b) => b.spend - a.spend).slice(0, 12).map(roundMoneyObject),
+    merchantTotals: [...bucket.merchants.values()]
+      .sort((a, b) => b.spend - a.spend || b.income - a.income || b.count - a.count || a.merchant.localeCompare(b.merchant))
+      .slice(0, 12)
+      .map(roundMoneyObject)
   })).sort((a, b) => (b.totals.debitCount + b.totals.creditCount) - (a.totals.debitCount + a.totals.creditCount));
 
   return { currencySummaries, duplicateCount, reviewCount, transactionCount: rows.length };

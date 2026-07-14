@@ -33,7 +33,7 @@ test("CSV import maps columns, skips within-file duplicates, and can roll back",
   await page.locator('input[type="file"]').setInputFiles({
     name: "june-statement.csv",
     mimeType: "text/csv",
-    buffer: Buffer.from("Date,Description,Amount,Currency,Category\n2026-06-10,TEST CAFE,-250,INR,Dining\n2026-06-10,TEST CAFE,-250,INR,Dining")
+    buffer: Buffer.from("Date,Description,Amount,Type,Currency,Category\n2026-06-10,TEST CAFE,250,Debit,INR,Dining\n2026-06-10,TEST CAFE,250,Debit,INR,Dining")
   });
   await expect(page.getByText("june-statement.csv")).toBeVisible();
   await page.getByLabel("Date format").selectOption("YYYY-MM-DD");
@@ -45,6 +45,29 @@ test("CSV import maps columns, skips within-file duplicates, and can roll back",
   await expect(page.getByText("1 imported · 1 skipped")).toBeVisible();
   await page.getByRole("button", { name: "Roll back" }).click();
   await expect(page.getByText("Completed imports will appear here.")).toBeVisible();
+});
+
+test("paste text requires corrections, saves reviewed drafts, and shows merchant totals", async ({ page }) => {
+  await register(page, { name: "E2E Text User", email: `e2e-text-${runId}@example.com` });
+  await page.goto("/import");
+  await page.getByRole("button", { name: "Paste text" }).click();
+  await page.getByLabel("Transaction text").fill("Date: 14 Jul 2026 Description: E2E MERCHANT Amount: -420.00");
+  await page.getByRole("button", { name: "Review drafts" }).click();
+  await expect(page.getByText("Add an explicit currency code or symbol.")).toBeVisible();
+  await page.getByLabel("Currency").fill("INR");
+  await expect(page.getByText("Ready to save · retained for review")).toBeVisible();
+  await page.getByRole("button", { name: "Save selected" }).click();
+  await expect(page.getByText("Transaction text")).toBeVisible();
+  await page.goto("/overview");
+  await expect(page.getByRole("heading", { name: "Top merchants" })).toBeVisible();
+  await expect(page.getByText("E2E MERCHANT", { exact: true })).toBeVisible();
+
+  await page.goto("/import");
+  await page.getByRole("button", { name: "Paste text" }).click();
+  await page.getByLabel("Transaction text").fill("Date: 14 Jul 2026 Description: E2E MERCHANT Amount: INR -420.00");
+  await page.getByRole("button", { name: "Review drafts" }).click();
+  await expect(page.getByText("Possible duplicate")).toBeVisible();
+  await expect(page.getByLabel("Save draft 1")).not.toBeChecked();
 });
 
 test("mobile navigation and transaction cards are keyboard reachable", async ({ page }) => {

@@ -1,6 +1,7 @@
 import type { Transaction } from "@prisma/client";
 import { summarizeTransactions } from "../analytics";
 import { detectSubscriptionCandidates } from "../subscriptions";
+import { normalizeMerchant } from "../merchant";
 
 describe("analytics and subscription helpers", () => {
   it("summarizes totals, categories, merchants, duplicates, and review counts", () => {
@@ -16,8 +17,16 @@ describe("analytics and subscription helpers", () => {
       totals: { spend: 1298, income: 100000, net: 98702, debitCount: 2, creditCount: 1 }
     });
     expect(summary.currencySummaries[0]?.categoryTotals[0]).toMatchObject({ category: "Entertainment", spend: 1298, count: 2 });
+    expect(summary.currencySummaries[0]?.merchantTotals[0]).toEqual({ merchant: "NETFLIX INDIA", spend: 1298, income: 0, count: 2 });
     expect(summary.duplicateCount).toBe(1);
     expect(summary.reviewCount).toBe(1);
+  });
+
+  it("shares normalized merchant names and caps spend-first totals", () => {
+    expect(normalizeMerchant("UPI/NETFLIX INDIA subscription")).toBe("NETFLIX INDIA");
+    const summary = summarizeTransactions(Array.from({ length: 14 }, (_, index) => row({ description: `Merchant ${index}`, amount: -(index + 1) })));
+    expect(summary.currencySummaries[0]?.merchantTotals).toHaveLength(12);
+    expect(summary.currencySummaries[0]?.merchantTotals[0]?.spend).toBe(14);
   });
 
   it("never combines totals across currencies", () => {

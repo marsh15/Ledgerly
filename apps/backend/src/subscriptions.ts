@@ -1,6 +1,7 @@
 import type { Prisma, Transaction } from "@prisma/client";
 import type { TenantScope } from "./isolation";
 import { buildTransactionWhere, type TransactionFilters } from "./transaction-query";
+import { normalizeMerchant } from "./merchant";
 
 type TenantDb = Prisma.TransactionClient;
 
@@ -67,17 +68,6 @@ export function detectSubscriptionCandidates(rows: Transaction[]): SubscriptionC
 
 function cleanCurrencyCode(value?: string | null): string {
   return value && /^[A-Z]{3}$/.test(value) ? value : "INR";
-}
-
-function normalizeMerchant(description: string): string {
-  return description
-    .replace(/\b(auto|pay|payment|upi|pos|txn|debit|card|subscription|monthly)\b/gi, " ")
-    .replace(/[#*:|/\\()[\]{}._-]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 3)
-    .join(" ")
-    .toUpperCase();
 }
 
 function inferCadence(gaps: number[]): SubscriptionCandidate["cadence"] | null {

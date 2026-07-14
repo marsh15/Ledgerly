@@ -88,6 +88,8 @@ AUTH_SECRET="replace-with-at-least-32-random-characters-for-authjs"
 AUTH_URL="http://localhost:3000"
 NEXT_PUBLIC_BACKEND_URL="http://localhost:4000"
 BACKEND_INTERNAL_URL="http://localhost:4000"
+REDIS_URL="redis://localhost:6379"
+TRUST_PROXY_HEADERS="false"
 ```
 
 `DATABASE_URL` should point at the non-owner runtime role so row-level security is actually enforced. `DATABASE_MIGRATION_URL` is the owner/migrator connection used for Prisma migrations and grants.
@@ -121,6 +123,7 @@ Each seeded user belongs to a separate personal organization and team. Demo tran
 ```http
 POST /api/auth/register
 POST /api/auth/login
+POST /api/auth/logout
 POST /api/transactions/preview
 POST /api/transactions
 POST /api/transactions/extract
@@ -182,7 +185,7 @@ If the dashboard shows "AI insights are disabled for this environment," the depl
 }
 ```
 
-The parser supports multiple transactions separated by blank lines. Each draft includes `draftId`, `sourceText`, `status`, `accountLabel`, and duplicate metadata.
+The parser supports multiple transactions separated by blank lines. Each draft includes nullable required fields, `issues: [{field, code, message}]`, `draftId`, `sourceText`, `status`, `accountLabel`, and duplicate metadata. Missing or malformed values are never replaced with today, zero, an inferred debit/credit type, or a default currency. The active Import page blocks selected drafts until their issues are corrected; corrected extracted drafts remain `NEEDS_REVIEW`.
 
 ### Save Drafts
 
@@ -236,7 +239,7 @@ Supported filters:
 - `accountLabel`
 - `minConfidence`
 
-`GET /api/transactions/export` accepts the same filters and returns up to 1,000 tenant-scoped rows as CSV. CSV columns are `date`, `description`, `amount`, `currencyCode`, `type`, `balanceAfter`, `category`, `confidence`, `status`, `accountLabel`, and `createdAt`.
+`GET /api/transactions/export` accepts the same filters and returns up to 1,000 tenant-scoped rows as CSV. CSV columns are `date`, `description`, `amount`, `currencyCode`, `type`, `balanceAfter`, `category`, `confidence`, `status`, `accountLabel`, and `createdAt`. User-controlled text cells beginning with `=`, `+`, `-`, or `@` after whitespace are apostrophe-prefixed before RFC 4180 quoting; numeric and date cells retain spreadsheet-compatible values.
 
 ## Parser Behavior
 
@@ -262,7 +265,7 @@ Currency behavior:
 
 - `₹`, `Rs`, and `INR` entries are stored and displayed as `INR`.
 - `$` and `USD` entries are stored and displayed as `USD`.
-- Entries without an explicit currency default to `INR`, matching the dashboard's original rupee-first behavior.
+- Entries without an explicit currency remain unset and carry a review issue.
 - AI spending insights receive tenant-scoped aggregate currency metadata and must format amounts with the stored transaction currency rather than defaulting to dollars.
 
 Confidence is calculated from detected fields:
@@ -274,9 +277,13 @@ Confidence is calculated from detected fields:
 - Balance found: `+0.10`
 - Category found: `+0.05`
 
-Drafts with confidence below `0.85` are marked `NEEDS_REVIEW`; higher-confidence drafts are marked `SAVED`.
+Drafts with confidence below `0.85` are marked `NEEDS_REVIEW`. Drafts corrected in the Import review UI remain `NEEDS_REVIEW` until reviewed in the ledger.
 
 ## Security And Data Isolation
+
+Production requires `REDIS_URL`; development and tests may use the process-local limiter. Login is throttled by hashed normalized email/IP and by hashed IP, and 429 responses include `Retry-After`. Forwarded IP headers are trusted only when `TRUST_PROXY_HEADERS=true` behind a proxy that replaces those headers. Logout first asks Better Auth to revoke the bearer-backed database session, then Auth.js clears its local session.
+
+Mutation audit events are written in the same database transaction as transaction, import, and category-rule changes. The `audit_event` table is tenant-scoped and append-only for the runtime role. Metadata is allowlisted and excludes raw transaction text, credentials, and tokens.
 
 Protected transaction routes verify the incoming cookie or bearer token with Better Auth, resolve the authenticated user's active organization/team membership, and build Prisma filters from server-side auth context.
 

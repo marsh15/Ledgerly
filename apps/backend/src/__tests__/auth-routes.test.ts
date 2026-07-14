@@ -61,6 +61,15 @@ describe("auth routes and tenant-scoped transactions", () => {
     expect(auth.token).toEqual(expect.any(String));
   });
 
+  it("revokes the backend bearer session on explicit logout", async () => {
+    if (!databaseReady) return skipDatabaseTest();
+    const session = await login(userA.email, userA.password);
+    const logout = await app.request("/api/auth/logout", { method: "POST", headers: { ...bearer(session.token), "content-type": "application/json" }, body: "{}" });
+    expect(logout.status).toBe(200);
+    const rejected = await app.request("/api/transactions", { headers: bearer(session.token) });
+    expect(rejected.status).toBe(401);
+  });
+
   it("rejects unauthenticated tenant-scoped requests", async () => {
     if (!databaseReady) return skipDatabaseTest();
     const list = await app.request("/api/transactions");
@@ -98,11 +107,22 @@ describe("auth routes and tenant-scoped transactions", () => {
     const created = await saveA.json() as { transactions: Array<{ id: string; description: string }> };
     const transactionId = created.transactions[0]?.id;
     expect(transactionId).toEqual(expect.any(String));
+    if (!transactionId) throw new Error("Expected created transaction id");
+
+    const memberA = await prisma.member.findFirstOrThrow({ where: { userId: authA.user.id } });
+    const audit = await withTenant({ userId: authA.user.id, organizationId: memberA.organizationId, teamId: null }, (tx) => tx.auditEvent.findFirst({ where: { resourceId: transactionId } }));
+    expect(audit).toMatchObject({ action: "TRANSACTION_CREATE", resourceType: "transaction", metadata: { source: "TEXT", status: "SAVED" } });
+    expect(JSON.stringify(audit?.metadata)).not.toContain("route test source");
+    if (!audit) throw new Error("Expected audit event");
+    await expect(withTenant({ userId: authA.user.id, organizationId: memberA.organizationId, teamId: null }, (tx) => tx.auditEvent.update({ where: { id: audit.id }, data: { action: "TAMPERED" } }))).rejects.toBeDefined();
 
     const listB = await app.request("/api/transactions", {
       headers: bearer(authB.token)
     });
     await expect(listB.json()).resolves.toMatchObject({ items: [] });
+    const memberB = await prisma.member.findFirstOrThrow({ where: { userId: authB.user.id } });
+    const hiddenAudit = await withTenant({ userId: authB.user.id, organizationId: memberB.organizationId, teamId: null }, (tx) => tx.auditEvent.findFirst({ where: { id: audit.id } }));
+    expect(hiddenAudit).toBeNull();
 
     const deleteB = await app.request(`/api/transactions/${transactionId}`, {
       method: "DELETE",
@@ -209,6 +229,7 @@ function draft(overrides: Partial<{
     status: "SAVED",
     accountLabel: "Personal",
     sourceText: "route test source",
+    source: "TEXT",
     ...(overrides.duplicateOfId !== undefined ? { duplicateOfId: overrides.duplicateOfId } : {})
   };
 }

@@ -37,3 +37,18 @@ CREATE POLICY import_batch_tenant_isolation ON "import_batch"
     "organizationId" = current_setting('app.current_organization_id', true)
     AND "userId" = current_setting('app.current_user_id', true)
   );
+
+ALTER TABLE "audit_event" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "audit_event" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS audit_event_insert_tenant ON "audit_event";
+CREATE POLICY audit_event_insert_tenant ON "audit_event"
+  FOR INSERT WITH CHECK (
+    "organizationId" = current_setting('app.current_organization_id', true)
+    AND "actorId" = current_setting('app.current_user_id', true)
+  );
+DROP POLICY IF EXISTS audit_event_select_tenant ON "audit_event";
+CREATE POLICY audit_event_select_tenant ON "audit_event"
+  FOR SELECT USING (
+    "organizationId" = current_setting('app.current_organization_id', true)
+    AND "actorId" = current_setting('app.current_user_id', true)
+  );
