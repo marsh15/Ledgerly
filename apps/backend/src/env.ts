@@ -12,6 +12,8 @@ export const env = {
   openaiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
   openaiModel: process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini",
   aiInsightsEnabled: process.env.AI_INSIGHTS_ENABLED === "true"
+  ,redisUrl: process.env.REDIS_URL?.trim() || (isProduction ? required("REDIS_URL") : undefined),
+  trustProxyHeaders: process.env.TRUST_PROXY_HEADERS === "true"
 };
 
 function required(name: string): string {

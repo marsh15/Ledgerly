@@ -1,4 +1,4 @@
-import { autoMapCsvHeaders, isAmbiguousCsvDate, normalizeCsvRows, parseCsv, transactionInputSchema } from "../index";
+import { autoMapCsvHeaders, isAmbiguousCsvDate, normalizeCsvRows, parseCsv, serializeCsvCell, transactionInputSchema } from "../index";
 
 describe("transaction contracts", () => {
   it("rejects impossible dates and amount/type conflicts", () => {
@@ -21,9 +21,24 @@ describe("CSV import helpers", () => {
 
   it("flags ambiguous numeric dates and normalizes an explicit format", () => {
     expect(isAmbiguousCsvDate("06/07/2026")).toBe(true);
-    const result = normalizeCsvRows([{ Date: "06/07/2026", Description: "Coffee", Amount: "420", Type: "Debit" }], {
-      date: "Date", description: "Description", amount: "Amount", type: "Type"
+    const result = normalizeCsvRows([{ Date: "06/07/2026", Description: "Coffee", Amount: "420", Type: "Debit", Currency: "INR" }], {
+      date: "Date", description: "Description", amount: "Amount", type: "Type", currencyCode: "Currency"
     }, "DD/MM/YYYY");
     expect(result[0]?.record).toMatchObject({ date: "2026-07-06", amount: -420, type: "DEBIT" });
+  });
+
+  it("requires explicit type and currency mappings", () => {
+    const [result] = normalizeCsvRows([{ Date: "2026-07-06", Description: "Coffee", Amount: "-420" }], { date: "Date", description: "Description", amount: "Amount" }, "YYYY-MM-DD");
+    expect(result?.record).toBeUndefined();
+    expect(result?.errors).toEqual(expect.arrayContaining(["Missing or invalid type", "Invalid currency"]));
+  });
+
+  it.each(["=1+1", "+SUM(A1)", "-2+3", "@cmd", " \t=HYPERLINK(\"x\")"])("neutralizes formula text %s", (value) => {
+    expect(serializeCsvCell(value, true)).toContain("'");
+  });
+
+  it("preserves numeric cells and quotes RFC 4180 text", () => {
+    expect(serializeCsvCell(-42.5)).toBe("-42.5");
+    expect(serializeCsvCell('Coffee, "shop"\nline', true)).toBe('"Coffee, ""shop""\nline"');
   });
 });

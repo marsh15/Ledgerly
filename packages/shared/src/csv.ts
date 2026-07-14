@@ -69,12 +69,13 @@ export function normalizeCsvRows(rows: Record<string, string>[], mapping: CsvMap
     if (!description) errors.push("Missing description");
     const rawAmount = Number(read(row, mapping.amount).replace(/[^0-9+.-]/g, ""));
     if (!Number.isFinite(rawAmount) || rawAmount === 0) errors.push("Invalid amount");
-    const rawType = read(row, mapping.type).toUpperCase();
-    const type = /CREDIT|CR|INCOME/.test(rawType) ? "CREDIT" : /DEBIT|DR|EXPENSE/.test(rawType) ? "DEBIT" : rawAmount < 0 ? "DEBIT" : "CREDIT";
+    const rawType = read(row, mapping.type).trim().toUpperCase();
+    const type = /^(CREDIT|CR|INCOME)$/.test(rawType) ? "CREDIT" : /^(DEBIT|DR|EXPENSE)$/.test(rawType) ? "DEBIT" : null;
+    if (!type) errors.push("Missing or invalid type");
     const amount = type === "DEBIT" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
-    const currencyCode = (read(row, mapping.currencyCode) || "INR").trim().toUpperCase();
+    const currencyCode = read(row, mapping.currencyCode).trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currencyCode)) errors.push("Invalid currency");
-    if (errors.length) return { errors };
+    if (errors.length || !type) return { errors };
     return {
       errors,
       record: {
@@ -92,6 +93,12 @@ export function normalizeCsvRows(rows: Record<string, string>[], mapping: CsvMap
       }
     };
   });
+}
+
+export function serializeCsvCell(value: string | number | null, textField = false): string {
+  let cell = value === null ? "" : String(value);
+  if (textField && /^[\s]*[=+\-@]/.test(cell)) cell = `'${cell}`;
+  return /[",\r\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
 }
 
 function read(row: Record<string, string>, header?: string): string {

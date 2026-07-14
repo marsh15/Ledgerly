@@ -8,6 +8,8 @@ import { useState, type ReactNode } from "react";
 import { clearLedgerCache } from "@/features/ledger/queries";
 import type { LedgerSection } from "@/features/ledger/types";
 import { Button } from "@/components/ui/button";
+import { apiFetch } from "@/lib/api";
+import { toast } from "sonner";
 
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -16,11 +18,17 @@ const navigation = [
   { id: "rules", label: "Rules", icon: ListTree }
 ] as const;
 
-export function LedgerShell({ active, userId, userName, children }: { active: LedgerSection; userId: string; userName: string; children: ReactNode }) {
+export function LedgerShell({ active, token, userId, userName, children }: { active: LedgerSection; token: string; userId: string; userName: string; children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const queryClient = useQueryClient();
   async function logout() {
     clearLedgerCache(queryClient, userId);
+    try {
+      await apiFetch<{ ok: true }>("/api/auth/logout", token, { method: "POST", body: "{}" });
+    } catch (error) {
+      console.error("Backend session revocation failed", { message: error instanceof Error ? error.message : "Unknown error" });
+      toast.error("Your local session ended, but Ledgerly could not confirm backend revocation.");
+    }
     await signOut({ callbackUrl: "/login" });
   }
   const nav = (

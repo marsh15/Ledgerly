@@ -21,6 +21,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://ledgerly_app:ledgerly_app@localhost:5433/ledgerly?schema=public
       DATABASE_MIGRATION_URL: postgresql://ledgerly_migrator:ledgerly@localhost:5433/ledgerly?schema=public
@@ -32,6 +40,8 @@ jobs:
       FRONTEND_URL: http://localhost:3000
       NEXT_PUBLIC_BACKEND_URL: http://localhost:4000
       BACKEND_INTERNAL_URL: http://localhost:4000
+      REDIS_URL: redis://localhost:6379
+      TRUST_PROXY_HEADERS: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
