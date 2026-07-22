@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
@@ -7,10 +9,10 @@ export default defineConfig({
     timeout: 10_000
   },
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+    baseURL: externalBaseUrl ?? "http://localhost:3000",
     trace: "on-first-retry"
   },
-  webServer: [
+  webServer: externalBaseUrl ? undefined : [
     {
       command: "npm run dev:backend",
       url: "http://localhost:4000/health",

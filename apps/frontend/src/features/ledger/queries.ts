@@ -1,8 +1,9 @@
 "use client";
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { normalizeAnalyticsResponse, type AnalyticsResponsePayload } from "@ledgerly/shared";
 import { apiFetch } from "@/lib/api";
-import type { AnalyticsResponse, CategoryRule, Filters, ImportBatchResponse, PresentedTransaction, TransactionInput, TransactionPage } from "./types";
+import type { CategoryRule, Filters, ImportBatchResponse, PresentedTransaction, TransactionInput, TransactionPage } from "./types";
 import { queryString } from "./types";
 
 export const ledgerKeys = {
@@ -17,7 +18,7 @@ export function useAnalytics(token: string, userId: string, filters: Filters) {
   const filterKey = queryString(filters);
   return useQuery({
     queryKey: ledgerKeys.analytics(userId, filterKey),
-    queryFn: () => apiFetch<AnalyticsResponse>(`/api/analytics/summary?${filterKey}`, token)
+    queryFn: async () => normalizeAnalyticsResponse(await apiFetch<AnalyticsResponsePayload>(`/api/analytics/summary?${filterKey}`, token))
   });
 }
 
