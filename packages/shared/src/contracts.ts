@@ -121,6 +121,20 @@ export type AnalyticsResponse = {
   transactionCount: number;
 };
 
+export type AnalyticsResponsePayload = Omit<AnalyticsResponse, "currencySummaries"> & {
+  currencySummaries: Array<Omit<CurrencySummary, "merchantTotals"> & { merchantTotals?: CurrencySummary["merchantTotals"] }>;
+};
+
+export function normalizeAnalyticsResponse(data: AnalyticsResponsePayload): AnalyticsResponse {
+  return {
+    ...data,
+    currencySummaries: data.currencySummaries.map((summary) => ({
+      ...summary,
+      merchantTotals: Array.isArray(summary.merchantTotals) ? summary.merchantTotals : []
+    }))
+  };
+}
+
 export type ImportBatchResponse = {
   id: string;
   filename: string;

@@ -27,6 +27,34 @@ test("account switching does not show stale ledger data", async ({ page }) => {
   await expect(page.getByText("E2E PRIVATE COFFEE")).toHaveCount(0);
 });
 
+test("overview tolerates analytics responses from before merchant totals were added", async ({ page }) => {
+  await page.route("**/api/analytics/summary?*", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        currencySummaries: [{
+          currencyCode: "INR",
+          totals: { spend: 420, income: 0, net: -420, debitCount: 1, creditCount: 0 },
+          monthlySeries: [{ month: "2026-07", spend: 420, income: 0, net: -420, count: 1 }],
+          categoryTotals: [{ category: "Dining", spend: 420, income: 0, count: 1 }]
+        }],
+        duplicateCount: 0,
+        reviewCount: 0,
+        transactionCount: 1
+      })
+    });
+  });
+  await page.route("**/api/analytics/subscriptions", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ subscriptions: [] }) });
+  });
+
+  await register(page, { name: "E2E Compatibility User", email: `e2e-compat-${runId}@example.com` });
+  await expectOverview(page);
+  await expect(page.getByRole("heading", { name: "Top merchants" })).toBeVisible();
+  await expect(page.getByText("No merchant totals yet.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Something went wrong" })).toHaveCount(0);
+});
+
 test("CSV import maps columns, skips within-file duplicates, and can roll back", async ({ page }) => {
   await register(page, { name: "E2E Import User", email: `e2e-import-${runId}@example.com` });
   await page.goto("/import");
