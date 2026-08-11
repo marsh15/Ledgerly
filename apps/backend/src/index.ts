@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { randomUUID } from "node:crypto";
 import { createTransactionDrafts, extractTransaction, normalizeForMatching, reviewStatusForConfidence } from "@ledgerly/shared";
 import type { Prisma, Transaction } from "@prisma/client";
 import { Hono } from "hono";
@@ -23,6 +24,19 @@ type Variables = {
 
 export const app = new Hono<{ Variables: Variables }>();
 
+app.use("*", async (c, next) => {
+  const suppliedRequestId = c.req.header("x-request-id");
+  const requestId = suppliedRequestId && /^[A-Za-z0-9._-]{8,100}$/.test(suppliedRequestId) ? suppliedRequestId : randomUUID();
+  c.header("x-request-id", requestId);
+  c.header("x-content-type-options", "nosniff");
+  c.header("x-frame-options", "DENY");
+  c.header("referrer-policy", "no-referrer");
+  c.header("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  if (c.req.path.startsWith("/api/")) c.header("cache-control", "no-store");
+  if (process.env.NODE_ENV === "production") c.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+  await next();
+});
+
 app.use(
   "*",
   cors({
@@ -38,7 +52,16 @@ app.use(
   })
 );
 
-app.get("/health", (c) => c.json({ ok: true }));
+app.get("/health", (c) => c.json({ ok: true, service: "ledgerly-api" }));
+
+app.get("/ready", async (c) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return c.json({ ok: true, checks: { database: "ready" } });
+  } catch {
+    return c.json({ ok: false, checks: { database: "unavailable" } }, 503);
+  }
+});
 
 app.post("/api/auth/register", async (c) => {
   const body = registerBodySchema.parse(await c.req.json());
@@ -176,6 +199,9 @@ app.post("/api/transactions/extract", async (c) => {
   const { saved, duplicate } = await withTenant(scope, async (tx) => {
     const rules = await getCategoryRules(tx, scope);
     const extracted = extractTransaction(body.text, { categoryRules: rules, enableBuiltInCategories: true });
+    if (!extracted.date || !extracted.description.trim() || extracted.amount === 0) {
+      throw new HTTPException(422, { message: "Transaction text is missing a valid date, description, or non-zero amount" });
+    }
     const duplicate = await findDuplicate(tx, scope, { ...extracted, accountLabel: body.accountLabel ?? "Personal" });
     const saved = await tx.transaction.create({
       data: {
@@ -226,7 +252,7 @@ app.get("/api/transactions", async (c) => {
     cursor: c.req.query("cursor"),
     limit: c.req.query("limit")
   });
-  const limit = query.limit ? Number(query.limit) : 10;
+  const limit = query.limit ?? 10;
   const filters = parseTransactionFilters(c);
   const cursor = query.cursor ? parseTransactionCursor(query.cursor) : null;
 
@@ -413,6 +439,10 @@ app.onError((error, c) => {
     return c.json({ error: { code: "BAD_REQUEST", message: "Invalid request", issues: error.issues } }, 400);
   }
 
+  if (error instanceof SyntaxError) {
+    return c.json({ error: { code: "BAD_REQUEST", message: "Request body must be valid JSON" } }, 400);
+  }
+
   console.error(error);
   return c.json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } }, 500);
 });
@@ -433,20 +463,25 @@ const previewBodySchema = z.object({
   accountLabel: z.string().max(60).optional()
 });
 
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}, "Use a valid calendar date");
+
 const draftInputSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  description: z.string().min(1).max(160),
+  date: isoDateSchema,
+  description: z.string().trim().min(1).max(160),
   type: z.enum(["DEBIT", "CREDIT"]),
-  amount: z.number(),
+  amount: z.number().finite().refine((value) => value !== 0, "Amount must be non-zero"),
   currencyCode: z.string().min(3).max(3).optional(),
-  balanceAfter: z.number().nullable(),
+  balanceAfter: z.number().finite().nullable(),
   category: z.string().max(60).nullable().optional(),
   confidence: z.number().min(0).max(1),
   status: z.enum(["SAVED", "NEEDS_REVIEW"]).optional(),
   accountLabel: z.string().max(60).optional(),
   duplicateOfId: z.unknown().optional(),
-  sourceText: z.string().optional(),
-  rawText: z.string().optional()
+  sourceText: z.string().max(50_000).optional(),
+  rawText: z.string().max(50_000).optional()
 }).passthrough();
 
 const saveDraftsBodySchema = z.object({
@@ -462,9 +497,10 @@ const paginationQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z
     .string()
-    .min(1)
+    .regex(/^[1-9]\d*$/, "Limit must be a positive integer")
+    .transform(Number)
+    .refine((value) => value <= 50, "Limit cannot exceed 50")
     .optional()
-    .refine((value) => !value || Number(value) <= 50, "Limit cannot exceed 50")
 });
 
 const insightBodySchema = z.object({
@@ -727,5 +763,7 @@ function httpErrorCode(status: number): string {
   if (status === 401) return "UNAUTHORIZED";
   if (status === 403) return "FORBIDDEN";
   if (status === 404) return "NOT_FOUND";
+  if (status === 422) return "VALIDATION_ERROR";
+  if (status === 429) return "RATE_LIMITED";
   return "HTTP_ERROR";
 }

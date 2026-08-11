@@ -1,4 +1,13 @@
-# PRD: Ledgerly
+# 01 — Product Requirements Document: Ledgerly
+
+This document is part of Ledgerly's six-document coding brief:
+
+1. **PRD** (this document)
+2. [Technical Requirements](./TRD.md)
+3. [App Flow](./APP_FLOW.md)
+4. [UI/UX Design Brief](./UI_UX_DESIGN_BRIEF.md)
+5. [Backend Schema](./BACKEND_SCHEMA.md)
+6. [Implementation Plan](./IMPLEMENTATION_PLAN.md)
 
 ## Problem Statement
 

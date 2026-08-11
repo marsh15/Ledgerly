@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ledgerly 1 — Read the System Before the Files</title>
+  <style>
+    body{font-family:system-ui,-apple-system,sans-serif;max-width:900px;margin:40px auto;padding:0 22px;line-height:1.6;color:#17211b;background:#fbfcfa} h1,h2{line-height:1.2} pre{background:#eef4ef;padding:16px;overflow:auto;border-radius:10px} .callout{border-left:4px solid #087f5b;padding:10px 16px;background:#f1faf6} li{margin:.45em 0}
+  </style>
+</head>
+<body>
+  <h1>Lesson 1: Read the System Before the Files</h1>
+  <p><strong>Goal:</strong> Build the mental model needed to explain Ledgerly without memorizing filenames.</p>
+  <h2>The core idea</h2>
+  <p>Ledgerly is a pipeline. Raw financial input enters through a browser, becomes a validated structured record, is saved under an authenticated tenant, and is then queried into views, analytics, exports, and optional aggregate-only insights.</p>
+  <pre>browser → API → authenticated scope → validation/parser → Prisma → PostgreSQL → response → cached UI</pre>
+  <div class="callout"><strong>Interview anchor:</strong> the frontend requests actions; the backend decides identity and ownership; the database provides a second isolation barrier.</div>
+  <h2>How to navigate the repository</h2>
+  <ol>
+    <li>Start with <code>README.md</code>, <code>docs/PRD.md</code>, and the graph report to learn intended behavior and vocabulary.</li>
+    <li>Read the backend entry point <code>apps/backend/src/index.ts</code> to see middleware and route composition.</li>
+    <li>Follow imports into <code>tenant.ts</code>, <code>db.ts</code>, shared contracts, and feature services.</li>
+    <li>Trace one vertical flow end to end instead of reading all UI files as unrelated components.</li>
+  </ol>
+  <h2>Retrieval checkpoint</h2>
+  <p>Without looking at the code, answer: (1) What is the security boundary? (2) Where is raw text parsed? (3) Which layer owns user and organization IDs? (4) What does the frontend cache after a mutation?</p>
+  <h2>Next lesson</h2>
+  <p>We will trace registration and one protected request, including the Auth.js/Better Auth bridge and tenant resolution.</p>
+</body>
+</html>

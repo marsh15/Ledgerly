@@ -13,6 +13,8 @@ export type AnalyticsSummary = {
     creditCount: number;
   };
   primaryCurrencyCode: string;
+  isMixedCurrency: boolean;
+  aggregationTransactionCount: number;
   currencyBreakdown: Array<{ currencyCode: string; spend: number; income: number; net: number; count: number }>;
   monthlySeries: Array<{ month: string; spend: number; income: number; net: number; count: number }>;
   categoryTotals: Array<{ category: string; spend: number; income: number; count: number }>;
@@ -33,10 +35,6 @@ export async function getAnalyticsSummary(tx: TenantDb, scope: TenantScope, filt
 }
 
 export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
-  const totals = { spend: 0, income: 0, net: 0, debitCount: 0, creditCount: 0 };
-  const monthly = new Map<string, { month: string; spend: number; income: number; net: number; count: number }>();
-  const categories = new Map<string, { category: string; spend: number; income: number; count: number }>();
-  const merchants = new Map<string, { merchant: string; spend: number; income: number; count: number }>();
   const currencies = new Map<string, { currencyCode: string; spend: number; income: number; net: number; count: number }>();
   let duplicateCount = 0;
   let reviewCount = 0;
@@ -47,18 +45,41 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     const isDebit = row.type === "DEBIT" || amount < 0;
     const spend = isDebit ? magnitude : 0;
     const income = isDebit ? 0 : magnitude;
+    const currencyCode = cleanCurrencyCode(row.currencyCode);
+    const currencyBucket = currencies.get(currencyCode) ?? { currencyCode, spend: 0, income: 0, net: 0, count: 0 };
+    currencyBucket.spend += spend;
+    currencyBucket.income += income;
+    currencyBucket.net += income - spend;
+    currencyBucket.count += 1;
+    currencies.set(currencyCode, currencyBucket);
+
+    if (row.duplicateOfId) duplicateCount += 1;
+    if (row.status === "NEEDS_REVIEW") reviewCount += 1;
+  }
+
+  const currencyBreakdown = [...currencies.values()].sort((a, b) => b.count - a.count).map(roundMoneyObject);
+  const primaryCurrencyCode = currencyBreakdown[0]?.currencyCode ?? "INR";
+  const aggregationRows = rows.filter((row) => cleanCurrencyCode(row.currencyCode) === primaryCurrencyCode);
+  const totals = { spend: 0, income: 0, net: 0, debitCount: 0, creditCount: 0 };
+  const monthly = new Map<string, { month: string; spend: number; income: number; net: number; count: number }>();
+  const categories = new Map<string, { category: string; spend: number; income: number; count: number }>();
+  const merchants = new Map<string, { merchant: string; spend: number; income: number; count: number }>();
+
+  for (const row of aggregationRows) {
+    const amount = Number(row.amount);
+    const magnitude = Math.abs(amount);
+    const isDebit = row.type === "DEBIT" || amount < 0;
+    const spend = isDebit ? magnitude : 0;
+    const income = isDebit ? 0 : magnitude;
     const month = row.date.toISOString().slice(0, 7);
     const category = row.category || "Uncategorized";
     const merchant = merchantFromDescription(row.description);
-    const currencyCode = cleanCurrencyCode(row.currencyCode);
 
     totals.spend += spend;
     totals.income += income;
     totals.net += income - spend;
     if (isDebit) totals.debitCount += 1;
     else totals.creditCount += 1;
-    if (row.duplicateOfId) duplicateCount += 1;
-    if (row.status === "NEEDS_REVIEW") reviewCount += 1;
 
     const monthlyBucket = monthly.get(month) ?? { month, spend: 0, income: 0, net: 0, count: 0 };
     monthlyBucket.spend += spend;
@@ -79,19 +100,13 @@ export function summarizeTransactions(rows: Transaction[]): AnalyticsSummary {
     merchantBucket.count += 1;
     merchants.set(merchant, merchantBucket);
 
-    const currencyBucket = currencies.get(currencyCode) ?? { currencyCode, spend: 0, income: 0, net: 0, count: 0 };
-    currencyBucket.spend += spend;
-    currencyBucket.income += income;
-    currencyBucket.net += income - spend;
-    currencyBucket.count += 1;
-    currencies.set(currencyCode, currencyBucket);
   }
-
-  const currencyBreakdown = [...currencies.values()].sort((a, b) => b.count - a.count || b.spend - a.spend).map(roundMoneyObject);
 
   return {
     totals: roundMoneyObject(totals),
-    primaryCurrencyCode: currencyBreakdown[0]?.currencyCode ?? "INR",
+    primaryCurrencyCode,
+    isMixedCurrency: currencyBreakdown.length > 1,
+    aggregationTransactionCount: aggregationRows.length,
     currencyBreakdown,
     monthlySeries: [...monthly.values()].map(roundMoneyObject),
     categoryTotals: [...categories.values()].sort((a, b) => b.spend - a.spend).slice(0, 12).map(roundMoneyObject),

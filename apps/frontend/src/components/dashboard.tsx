@@ -7,6 +7,7 @@ import {
   Download,
   FileText,
   Filter,
+  Gauge,
   Layers3,
   Loader2,
   LockKeyhole,
@@ -19,9 +20,12 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Tags,
   Trash2
 } from "lucide-react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -77,6 +81,8 @@ type CategoryRule = {
 type AnalyticsSummary = {
   totals: { spend: number; income: number; net: number; debitCount: number; creditCount: number };
   primaryCurrencyCode: string;
+  isMixedCurrency: boolean;
+  aggregationTransactionCount: number;
   currencyBreakdown: Array<{ currencyCode: string; spend: number; income: number; net: number; count: number }>;
   monthlySeries: Array<{ month: string; spend: number; income: number; net: number; count: number }>;
   categoryTotals: Array<{ category: string; spend: number; income: number; count: number }>;
@@ -119,6 +125,8 @@ type Feedback = {
   title: string;
   message: string;
 };
+
+export type DashboardView = "overview" | "transactions" | "import" | "rules";
 
 const samples = [
   {
@@ -174,8 +182,9 @@ const tableActionColumnClass = "sticky right-0 z-10 bg-background text-right sha
 const tableActionHeadClass = "sticky right-0 z-20 bg-muted/55 text-right shadow-[-12px_0_16px_-16px_rgba(15,23,42,0.45)]";
 const chartColors = ["#047857", "#0f766e", "#2563eb", "#9333ea", "#c2410c"];
 
-export function Dashboard({ token, userName }: { token: string; userName: string }) {
+export function Dashboard({ token, userName, view }: { token: string; userName: string; view: DashboardView }) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const [text, setText] = useState(samples[0]?.text ?? "");
   const [accountLabel, setAccountLabel] = useState("Personal");
   const [drafts, setDrafts] = useState<TransactionDraft[]>([]);
@@ -195,15 +204,18 @@ export function Dashboard({ token, userName }: { token: string; userName: string
   const insightFilters = useMemo(() => compactFilters(filters), [filters]);
   const summaryQuery = useQuery({
     queryKey: ["analytics-summary", queryString],
-    queryFn: () => apiFetch<AnalyticsSummary>(`/api/analytics/summary?${queryString}`, token)
+    queryFn: () => apiFetch<AnalyticsSummary>(`/api/analytics/summary?${queryString}`, token),
+    enabled: view === "overview" || view === "transactions"
   });
   const subscriptionsQuery = useQuery({
     queryKey: ["subscriptions", queryString],
-    queryFn: () => apiFetch<{ subscriptions: SubscriptionCandidate[] }>(`/api/analytics/subscriptions?${queryString}`, token)
+    queryFn: () => apiFetch<{ subscriptions: SubscriptionCandidate[] }>(`/api/analytics/subscriptions?${queryString}`, token),
+    enabled: view === "overview"
   });
   const rulesQuery = useQuery({
     queryKey: ["category-rules"],
-    queryFn: () => apiFetch<{ rules: CategoryRule[] }>("/api/category-rules", token)
+    queryFn: () => apiFetch<{ rules: CategoryRule[] }>("/api/category-rules", token),
+    enabled: view === "rules"
   });
   const insightsMutation = useMutation({
     mutationFn: () =>
@@ -217,10 +229,6 @@ export function Dashboard({ token, userName }: { token: string; userName: string
   const analytics = summaryQuery.data;
   const subscriptions = subscriptionsQuery.data?.subscriptions ?? [];
   const totalSpend = analytics?.totals.spend ?? 0;
-  const averageConfidence = useMemo(() => {
-    if (transactions.length === 0) return null;
-    return Math.round((transactions.reduce((sum, transaction) => sum + transaction.confidence, 0) / transactions.length) * 100);
-  }, [transactions]);
   const needsReviewCount = analytics?.reviewCount ?? 0;
   const duplicateDraftCount = useMemo(() => drafts.filter((draft) => draft.duplicate.isDuplicate).length, [drafts]);
   const savedDuplicateCount = useMemo(() => transactions.filter((transaction) => transaction.duplicateOfId).length, [transactions]);
@@ -288,9 +296,9 @@ export function Dashboard({ token, userName }: { token: string; userName: string
 
   async function saveDrafts() {
     if (drafts.length === 0) return;
-    const invalidDraft = drafts.find((draft) => !draft.date || !draft.description.trim() || !Number.isFinite(draft.amount));
+    const invalidDraft = drafts.find((draft) => !draft.date || !draft.description.trim() || !Number.isFinite(draft.amount) || draft.amount === 0);
     if (invalidDraft) {
-      setFeedback({ tone: "error", title: "Draft needs review", message: "Every draft needs a date, description, and valid amount before saving." });
+      setFeedback({ tone: "error", title: "Draft needs review", message: "Every draft needs a valid date, description, and non-zero amount before saving." });
       return;
     }
 
@@ -434,9 +442,9 @@ export function Dashboard({ token, userName }: { token: string; userName: string
   }
 
   useEffect(() => {
-    void load();
-    void loadRules();
-  }, []);
+    if (view === "overview" || view === "transactions") void load();
+    if (view === "rules") void loadRules();
+  }, [view]);
 
   useEffect(() => {
     if (rulesQuery.data?.rules) setRules(rulesQuery.data.rules);
@@ -445,9 +453,9 @@ export function Dashboard({ token, userName }: { token: string; userName: string
   const initials = getInitials(userName);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--secondary))_0,transparent_34rem),linear-gradient(180deg,hsl(var(--background)),#fff_42rem)]">
-      <header className="border-b bg-card/88 backdrop-blur">
-        <div className="mx-auto flex max-w-368 items-center justify-between px-4 py-4 sm:px-6">
+    <main className="min-h-screen bg-background">
+      <header className="border-b bg-card">
+        <div className="mx-auto flex max-w-368 flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm shadow-emerald-950/20">
               <ReceiptText className="size-5" />
@@ -457,6 +465,12 @@ export function Dashboard({ token, userName }: { token: string; userName: string
               <p className="text-sm text-muted-foreground">Private transaction workspace</p>
             </div>
           </div>
+          <nav aria-label="Application" className="order-3 flex w-full gap-1 overflow-x-auto border-t pt-3 md:order-none md:w-auto md:border-0 md:pt-0">
+            <AppNavLink href="/overview" active={pathname === "/overview"} icon={<Gauge className="size-4" />}>Overview</AppNavLink>
+            <AppNavLink href="/import" active={pathname === "/import"} icon={<FileText className="size-4" />}>Import</AppNavLink>
+            <AppNavLink href="/transactions" active={pathname === "/transactions"} icon={<ReceiptText className="size-4" />}>Transactions</AppNavLink>
+            <AppNavLink href="/rules" active={pathname === "/rules"} icon={<Tags className="size-4" />}>Rules</AppNavLink>
+          </nav>
           <div className="flex items-center gap-3">
             <div className="hidden items-center gap-3 border-r pr-4 sm:flex">
               <div className="flex size-9 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">{initials}</div>
@@ -473,8 +487,9 @@ export function Dashboard({ token, userName }: { token: string; userName: string
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-368 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(23rem,0.78fr)_minmax(0,1.45fr)]">
-        <div className="flex flex-col gap-6">
+      <div className={`mx-auto max-w-368 gap-6 px-4 py-6 sm:px-6 ${view === "import" ? "grid xl:grid-cols-[minmax(23rem,0.78fr)_minmax(0,1.45fr)]" : "block"}`}>
+        {view === "import" || view === "rules" ? <div className={`flex flex-col gap-6 ${view === "rules" ? "mx-auto max-w-4xl" : ""}`}>
+          {view === "import" ? (
           <Card className="overflow-hidden border-slate-200/80">
             <CardHeader className="pb-4">
               <div className="flex items-start justify-between gap-4">
@@ -557,7 +572,9 @@ export function Dashboard({ token, userName }: { token: string; userName: string
               <FeedbackPanel feedback={feedback} />
             </CardContent>
           </Card>
+          ) : null}
 
+          {view === "rules" ? (
           <Card className="overflow-hidden border-slate-200/80">
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -567,16 +584,23 @@ export function Dashboard({ token, userName }: { token: string; userName: string
               <CardDescription className="mt-2">Rules run before explicit or built-in categories.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="grid gap-2 sm:grid-cols-[1fr_0.85fr_auto]">
-                <Input value={ruleDraft.matchText} onChange={(event) => setRuleDraft((current) => ({ ...current, matchText: event.target.value }))} placeholder="Description contains" maxLength={80} />
-                <Input value={ruleDraft.category} onChange={(event) => setRuleDraft((current) => ({ ...current, category: event.target.value }))} placeholder="Category" maxLength={60} />
+              <div className="grid items-end gap-2 sm:grid-cols-[1fr_0.85fr_auto]">
+                <Field label="Description contains">
+                  <Input value={ruleDraft.matchText} onChange={(event) => setRuleDraft((current) => ({ ...current, matchText: event.target.value }))} placeholder="For example, Starbucks" maxLength={80} />
+                </Field>
+                <Field label="Assign category">
+                  <Input value={ruleDraft.category} onChange={(event) => setRuleDraft((current) => ({ ...current, category: event.target.value }))} placeholder="For example, Dining" maxLength={60} />
+                </Field>
                 <Button type="button" onClick={createRule} disabled={working || ruleDraft.matchText.trim().length < 2 || ruleDraft.category.trim().length < 2}>
                   Save
                 </Button>
               </div>
               <div className="divide-y rounded-md border">
                 {rules.length === 0 ? (
-                  <p className="px-3 py-4 text-sm text-muted-foreground">No rules yet.</p>
+                  <div className="px-4 py-6">
+                    <p className="font-semibold text-foreground">No category rules yet</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">Add a merchant phrase above. Future previews will apply the category without rewriting saved history.</p>
+                  </div>
                 ) : (
                   rules.map((rule) => (
                     <div key={rule.id} className="flex items-center justify-between gap-3 px-3 py-2">
@@ -593,10 +617,11 @@ export function Dashboard({ token, userName }: { token: string; userName: string
               </div>
             </CardContent>
           </Card>
-        </div>
+          ) : null}
+        </div> : null}
 
         <div className="flex min-w-0 flex-col gap-6">
-          {drafts.length > 0 ? (
+          {view === "import" && drafts.length > 0 ? (
             <Card className="overflow-hidden border-slate-200/80">
               <CardHeader className="border-b bg-card pb-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -621,31 +646,34 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                 ))}
               </CardContent>
             </Card>
-          ) : null}
+          ) : view === "import" ? <ImportGuide /> : null}
 
+          {view === "overview" || view === "transactions" ? (
           <Card className="overflow-hidden border-slate-200/80">
             <CardHeader className="border-b bg-card pb-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-xl">
                     <ReceiptText className="size-5 text-primary" />
-                    Transactions
+                    {view === "overview" ? "Overview" : "Transactions"}
                   </CardTitle>
                   <CardDescription className="mt-2">
-                    Searchable, filterable, exportable, and scoped to your private organization.
-                    {savedDuplicateCount > 0 ? ` ${savedDuplicateCount} saved duplicate${savedDuplicateCount === 1 ? "" : "s"} marked.` : ""}
+                    {view === "overview"
+                      ? "Currency-safe totals, recurring patterns, and review work for your private ledger."
+                      : "Search, filter, export, and manage rows scoped to your private organization."}
+                    {view === "transactions" && savedDuplicateCount > 0 ? ` ${savedDuplicateCount} saved duplicate${savedDuplicateCount === 1 ? "" : "s"} marked.` : ""}
                   </CardDescription>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:flex">
-                  <Stat label="Visible" value={transactions.length.toLocaleString("en-IN")} />
+                  <Stat label="Transactions" value={(analytics?.transactionCount ?? transactions.length).toLocaleString("en-IN")} />
                   <Stat label="Spend" value={formatMoney(totalSpend, analytics?.primaryCurrencyCode, false)} />
-                  <Stat label="Confidence" value={averageConfidence === null ? "--" : `${averageConfidence}%`} />
                   <Stat label="Review" value={needsReviewCount.toLocaleString("en-IN")} />
+                  <Stat label="Duplicates" value={(analytics?.duplicateCount ?? savedDuplicateCount).toLocaleString("en-IN")} />
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 p-0">
-              <div className="border-b bg-muted/20 p-4">
+              {view === "transactions" ? <div className="border-b bg-muted/20 p-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[minmax(14rem,1.2fr)_repeat(4,minmax(10rem,1fr))]">
                   <Field label="Search">
                     <Input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Merchant or description" />
@@ -672,17 +700,23 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                   </Field>
                 </div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-3 2xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
-                  <Input value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))} placeholder="Category" />
-                  <Input value={filters.accountLabel} onChange={(event) => setFilters((current) => ({ ...current, accountLabel: event.target.value }))} placeholder="Account label" />
-                  <Input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={filters.minConfidence}
-                    onChange={(event) => setFilters((current) => ({ ...current, minConfidence: event.target.value }))}
-                    placeholder="Min confidence 0-1"
-                  />
+                  <Field label="Category">
+                    <Input value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))} placeholder="Any category" />
+                  </Field>
+                  <Field label="Account label">
+                    <Input value={filters.accountLabel} onChange={(event) => setFilters((current) => ({ ...current, accountLabel: event.target.value }))} placeholder="Any account" />
+                  </Field>
+                  <Field label="Minimum confidence">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={filters.minConfidence}
+                      onChange={(event) => setFilters((current) => ({ ...current, minConfidence: event.target.value }))}
+                      placeholder="0 to 1"
+                    />
+                  </Field>
                   <div className="grid grid-cols-3 gap-2 lg:col-span-3 2xl:col-span-1 2xl:flex 2xl:justify-end">
                     <Button type="button" variant="secondary" onClick={applyFilters} disabled={loading} className="h-11 px-3">
                       <Filter data-icon="inline-start" className="size-4" />
@@ -698,8 +732,10 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                     </Button>
                   </div>
                 </div>
-              </div>
+              </div> : null}
 
+              {view === "overview" ? <>
+              {analytics?.isMixedCurrency ? <MixedCurrencyNotice summary={analytics} /> : null}
               <div className="grid gap-3 px-4 md:grid-cols-2">
                 <InsightList
                   title="Category spend"
@@ -724,9 +760,32 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                   onGenerate={() => insightsMutation.mutate()}
                 />
               </div>
+              </> : null}
 
-              <div className="px-4 text-xs text-muted-foreground md:hidden">Swipe the table sideways for balance, category, and actions.</div>
-              <div>
+              {view === "transactions" ? <>
+              <div className="grid gap-3 px-4 md:hidden">
+                {loading && transactions.length === 0
+                  ? Array.from({ length: 3 }).map((_, index) => <div key={index} className="h-44 animate-pulse rounded-lg border bg-muted/60" />)
+                  : null}
+                {transactions.map((transaction) => (
+                  <MobileTransactionCard
+                    key={transaction.id}
+                    transaction={transaction}
+                    working={working}
+                    onDelete={() => deleteTransaction(transaction)}
+                  />
+                ))}
+                {!loading && transactions.length === 0 ? (
+                  <div className="flex min-h-52 flex-col items-center justify-center gap-3 rounded-lg border bg-muted/20 px-6 text-center">
+                    <Search className="size-6 text-muted-foreground" />
+                    <div>
+                      <p className="font-semibold">No transactions in this view</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Preview and save drafts, or adjust the active filters.</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="hidden md:block">
                 <Table className="min-w-265">
                   <TableHeader className="bg-muted/55">
                     <TableRow>
@@ -795,11 +854,81 @@ export function Dashboard({ token, userName }: { token: string; userName: string
                   Load more
                 </Button>
               </div>
+              </> : null}
             </CardContent>
           </Card>
+          ) : null}
         </div>
       </div>
     </main>
+  );
+}
+
+function AppNavLink({ href, active, icon, children }: { href: string; active: boolean; icon: ReactNode; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+        active ? "bg-secondary text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+function ImportGuide() {
+  const steps = [
+    ["Paste", "Add one bank alert or a blank-line-separated batch."],
+    ["Review", "Correct dates, amounts, categories, and low-confidence fields."],
+    ["Save", "Commit only the reviewed drafts to your private workspace."]
+  ];
+
+  return (
+    <Card className="border-slate-200/80">
+      <CardHeader>
+        <CardTitle className="text-xl">A review-first import</CardTitle>
+        <CardDescription className="mt-2 max-w-prose">
+          Parsing never saves automatically. You see deterministic output and possible duplicates before any row reaches the ledger.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+          {steps.map(([title, description], index) => (
+            <li key={title} className="rounded-md bg-muted/55 p-4">
+              <div className="flex size-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{index + 1}</div>
+              <p className="mt-4 font-semibold text-foreground">{title}</p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MixedCurrencyNotice({ summary }: { summary: AnalyticsSummary }) {
+  return (
+    <div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+      <div className="flex gap-3">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+        <div>
+          <p className="font-semibold">Headline analytics use {summary.primaryCurrencyCode} only</p>
+          <p className="mt-1 leading-6 text-amber-900">
+            This view contains {summary.currencyBreakdown.length} currencies. Ledgerly keeps their money totals separate and uses the most frequent currency for charts.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {summary.currencyBreakdown.map((item) => (
+              <span key={item.currencyCode} className="rounded-md border border-amber-200 bg-white px-2 py-1 font-mono text-xs font-semibold">
+                {item.currencyCode}: {formatMoney(item.spend, item.currencyCode, false)} spend
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -894,6 +1023,8 @@ function FeedbackPanel({ feedback }: { feedback: Feedback }) {
 
   return (
     <div
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
       className={`rounded-lg border px-4 py-4 ${
         isSuccess
           ? "border-emerald-200 bg-emerald-50 text-emerald-950"
@@ -1135,6 +1266,59 @@ function EmptyRows() {
         </div>
       </TableCell>
     </TableRow>
+  );
+}
+
+function MobileTransactionCard({
+  transaction,
+  working,
+  onDelete,
+}: {
+  transaction: Transaction;
+  working: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <article className="rounded-lg border bg-background p-4 shadow-sm shadow-slate-950/5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="truncate font-semibold">{transaction.description}</p>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">{transaction.date}</p>
+        </div>
+        <p className={`shrink-0 font-mono font-semibold ${transaction.amount < 0 ? "text-foreground" : "text-primary"}`}>
+          {formatMoney(transaction.amount, transaction.currencyCode)}
+        </p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <TypeBadge type={transaction.type} />
+        <StatusBadge status={transaction.status} />
+        {transaction.category ? <CategoryBadge value={transaction.category} /> : null}
+        {transaction.duplicateOfId ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Possible duplicate</Badge> : null}
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-4 text-sm">
+        <div>
+          <dt className="text-xs text-muted-foreground">Balance after</dt>
+          <dd className="mt-0.5 font-mono font-medium">
+            {transaction.balanceAfter === null ? "Not found" : formatMoney(transaction.balanceAfter, transaction.currencyCode, false)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Confidence</dt>
+          <dd className="mt-0.5 font-semibold text-primary">{Math.round(transaction.confidence * 100)}%</dd>
+        </div>
+        <div className="col-span-2">
+          <dt className="text-xs text-muted-foreground">Account</dt>
+          <dd className="mt-0.5 truncate font-medium">{transaction.accountLabel}</dd>
+        </div>
+      </dl>
+
+      <Button type="button" variant="outline" className="mt-4 w-full" onClick={onDelete} disabled={working}>
+        <Trash2 data-icon="inline-start" className="size-4" />
+        Delete transaction
+      </Button>
+    </article>
   );
 }
 

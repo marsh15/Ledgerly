@@ -56,6 +56,20 @@ Available Balance → ₹17,170.50`);
     expect(result.confidence).toBeLessThan(0.9);
   });
 
+  it("does not invent today's date for incomplete input", () => {
+    const result = extractTransaction("Local Store debit notification without a date or amount");
+
+    expect(result.date).toBe("");
+    expect(result.amount).toBe(0);
+    expect(result.confidence).toBeLessThan(0.5);
+  });
+
+  it("rejects impossible calendar dates instead of normalizing them", () => {
+    const result = extractTransaction("Date: 31 Feb 2025 Description: TEST SHOP Amount: -10.00");
+
+    expect(result.date).toBe("");
+  });
+
   it("applies user category rules before built-in categorization", () => {
     const result = extractTransaction("Date: 11 Dec 2025 Description: STARBUCKS COFFEE MUMBAI Amount: -420.00 Balance after transaction: 18,420.50", {
       categoryRules: [{ matchText: "starbucks", category: "Client Meals" }],
@@ -96,6 +110,11 @@ Category: Cloud`);
       balanceAfter: 1250,
       category: "Cloud"
     });
+  });
+
+  it("recognizes euro and pound currency markers", () => {
+    expect(extractTransaction("Date: 18 Dec 2025 Description: EURO SHOP Amount: €42.50").currencyCode).toBe("EUR");
+    expect(extractTransaction("Date: 18 Dec 2025 Description: UK SHOP Amount: GBP 21.00").currencyCode).toBe("GBP");
   });
 
   it("creates editable drafts from blank-line-separated bulk input", () => {

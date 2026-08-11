@@ -21,7 +21,7 @@
 }
 
 :root {
-  --background: 42 38% 98%;
+  --background: 160 20% 97%;
   --foreground: 221 42% 10%;
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
@@ -29,12 +29,12 @@
   --primary-foreground: 0 0% 100%;
   --secondary: 160 32% 94%;
   --secondary-foreground: 222 47% 11%;
-  --muted: 42 28% 95%;
-  --muted-foreground: 218 15% 43%;
+  --muted: 160 14% 95%;
+  --muted-foreground: 158 11% 36%;
   --accent: 38 88% 93%;
   --accent-foreground: 33 76% 24%;
-  --border: 216 24% 89%;
-  --input: 216 24% 89%;
+  --border: 158 16% 87%;
+  --input: 158 16% 87%;
   --ring: 164 82% 22%;
 }
 
@@ -44,6 +44,7 @@
 
 html {
   scroll-behavior: smooth;
+  color-scheme: light;
 }
 
 body {
@@ -51,6 +52,7 @@ body {
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
   text-rendering: geometricPrecision;
+  min-width: 320px;
 }
 
 ::selection {
@@ -59,4 +61,27 @@ body {
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

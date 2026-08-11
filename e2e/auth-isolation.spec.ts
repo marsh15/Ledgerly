@@ -44,10 +44,12 @@ test("User A saved transactions are hidden from User B", async ({ page }) => {
   });
 
   await expectDashboard(page);
+  await page.getByRole("link", { name: "Import" }).click();
   await page.getByLabel("Statement text").fill(sample);
   await page.getByRole("button", { name: "Preview drafts" }).click();
   await expect(page.getByText("1 draft ready")).toBeVisible();
   await page.getByRole("button", { name: "Save reviewed" }).click();
+  await page.getByRole("link", { name: "Transactions" }).click();
   await expect(page.getByRole("table").getByRole("cell", { name: "STARBUCKS COFFEE MUMBAI", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Logout" }).click();
@@ -59,6 +61,7 @@ test("User A saved transactions are hidden from User B", async ({ page }) => {
   });
 
   await expectDashboard(page);
+  await page.getByRole("link", { name: "Transactions" }).click();
   await expect(page.getByText("No transactions in this view")).toBeVisible();
   await expect(page.getByRole("table").getByText("STARBUCKS COFFEE MUMBAI")).toHaveCount(0);
 });
@@ -79,5 +82,7 @@ async function login(page: Page, email: string, inputPassword: string) {
 }
 
 async function expectDashboard(page: Page) {
-  await expect(page.getByText("Searchable, filterable, exportable, and scoped to your private organization.")).toBeVisible();
+  await expect(page).toHaveURL(/\/overview/);
+  await expect(page.getByRole("heading", { name: "Ledgerly", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Application" })).toBeVisible();
 }

@@ -20,6 +20,23 @@ describe("analytics and subscription helpers", () => {
     expect(summary.reviewCount).toBe(1);
   });
 
+  it("never combines different currencies into one headline total", () => {
+    const summary = summarizeTransactions([
+      row({ description: "INR COFFEE", amount: -500, currencyCode: "INR" }),
+      row({ description: "INR DINNER", amount: -1000, currencyCode: "INR" }),
+      row({ description: "USD HOSTING", amount: -100, currencyCode: "USD" })
+    ]);
+
+    expect(summary.isMixedCurrency).toBe(true);
+    expect(summary.primaryCurrencyCode).toBe("INR");
+    expect(summary.aggregationTransactionCount).toBe(2);
+    expect(summary.totals.spend).toBe(1500);
+    expect(summary.currencyBreakdown).toEqual([
+      expect.objectContaining({ currencyCode: "INR", spend: 1500, count: 2 }),
+      expect.objectContaining({ currencyCode: "USD", spend: 100, count: 1 })
+    ]);
+  });
+
   it("detects recurring monthly debits and ignores one-off rows", () => {
     const subscriptions = detectSubscriptionCandidates([
       row({ date: "2026-01-05", description: "NETFLIX INDIA SUBSCRIPTION", amount: -649 }),

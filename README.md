@@ -1,6 +1,6 @@
 # Ledgerly
 
-Ledgerly is a personal finance transaction management app for turning raw bank transaction text into structured, reviewable records. Authenticated users can preview parsed transactions, save reviewed drafts, manage category rules, export CSVs, and access only their own tenant-scoped data.
+Ledgerly is a multi-tenant personal finance workspace that turns raw bank transaction text into structured, reviewable records. It is designed as a portfolio-grade demonstration of deterministic parsing, secure tenant isolation, mixed-currency analytics, and a deliberate preview-before-save workflow.
 
 ## Live Demo
 
@@ -8,11 +8,13 @@ Ledgerly is a personal finance transaction management app for turning raw bank t
 - Backend: https://ledgerly-ytqk.onrender.com
 - Health check: https://ledgerly-ytqk.onrender.com/health
 
+The URLs above point to the currently deployed demo and may lag local changes until the next deployment.
+
 The live demo can be tested safely by registering a fresh email address. New users start with an empty tenant-scoped workspace, so transactions created by one test user should not appear for another user.
 
 ## Tech Stack
 
-- Frontend: Next.js 15 App Router, TypeScript, React Server Components
+- Frontend: Next.js 16 App Router, TypeScript, React 19
 - Backend: Hono, TypeScript
 - Authentication: Better Auth with email/password sessions, bearer/JWT plugins, and organization/team support
 - Frontend session bridge: Auth.js credentials provider
@@ -49,6 +51,19 @@ Better Auth is the source of truth for registration, login, password hashing, se
 - Computed recurring subscription detection from tenant-scoped transactions
 - Optional OpenAI spending insights generated from aggregates only
 - Tenant-scoped backend queries and PostgreSQL row-level security
+- Currency-separated totals that never silently add unlike currencies
+- Public product landing page plus dedicated Overview, Import, Transactions, and Rules routes
+
+## Product Routes
+
+| Route | Access | Purpose |
+| --- | --- | --- |
+| `/` | Public | Product story, parser proof, architecture, and calls to action |
+| `/login`, `/register` | Public | Account access and creation |
+| `/overview` | Protected | Financial summary, trends, subscriptions, and optional AI insights |
+| `/import` | Protected | Raw-text preview, correction, duplicate review, and bulk save |
+| `/transactions` | Protected | Search, filters, cursor pagination, deletion, and CSV export |
+| `/rules` | Protected | Tenant-scoped merchant-to-category rules |
 
 ## Local Setup
 
@@ -72,6 +87,8 @@ npm run dev:frontend
 ```
 
 Open `http://localhost:3000`.
+
+The frontend production build explicitly uses webpack because Turbopack's internal PostCSS worker cannot bind a port in some restricted CI/sandbox environments. Development still uses the standard Next.js dev server.
 
 ## Environment
 
@@ -126,6 +143,8 @@ Each seeded user belongs to a separate personal organization and team. Demo tran
 ```http
 POST /api/auth/register
 POST /api/auth/login
+GET /health
+GET /ready
 POST /api/transactions/preview
 POST /api/transactions
 POST /api/transactions/extract
@@ -256,14 +275,17 @@ Supported amount and debit indicators:
 - `₹1,250.00 debited`
 - `₹2,999.00 Dr`
 - `$42.50`
+- `€42.50`, `EUR 42.50`, `£42.50`, and `GBP 42.50`
 - `->` and `→` balance arrows
 
 Currency behavior:
 
 - `₹`, `Rs`, and `INR` entries are stored and displayed as `INR`.
 - `$` and `USD` entries are stored and displayed as `USD`.
+- `€`/`EUR` and `£`/`GBP` entries are stored and displayed as `EUR` and `GBP`.
 - Entries without an explicit currency default to `INR`, matching the dashboard's original rupee-first behavior.
-- AI spending insights receive tenant-scoped aggregate currency metadata and must format amounts with the stored transaction currency rather than defaulting to dollars.
+- Dashboard headline totals and trend/category/merchant aggregates use the most frequent currency; a visible breakdown keeps other currencies separate.
+- AI spending insights receive tenant-scoped aggregate currency metadata rather than raw transaction text.
 
 Confidence is calculated from detected fields:
 
@@ -446,3 +468,20 @@ Error responses use a consistent shape:
 - Auth.js is used only as a Next.js session bridge; Better Auth remains the auth source of truth.
 - Parser support is intentionally focused on common bank transaction text formats and nearby variants.
 - Database-backed auth route tests require `DATABASE_URL` to be reachable.
+- Rate limiting is process-local in the current implementation. A shared store is required before horizontally scaling the API.
+- CSV export is implemented; direct bank-CSV import, transaction editing, import history, and rollback are intentionally not claimed as current features.
+
+## Verification
+
+The repository is expected to pass:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npm audit --omit=dev
+```
+
+Unit tests cover parsing edge cases, analytics (including mixed currencies), subscriptions, and route behavior. Database-backed authentication tests run when PostgreSQL is reachable and skip with an explicit reason otherwise. Browser verification covers the public landing and authentication surfaces; a reachable local database is required for the complete protected workflow.
+
+GitHub Actions provisions an ephemeral PostgreSQL service and runs migrations, type checking, the complete test suite, the production build, a dependency audit, and the two-user Playwright isolation flow on every pull request and push to `main`. Dependabot groups routine npm updates weekly and checks GitHub Actions monthly.

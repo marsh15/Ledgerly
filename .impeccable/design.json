@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-10T07:30:00.000Z",
+  "title": "Design System: Ledgerly",
+  "extensions": {
+    "colorMeta": {
+      "canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "#F7FAF9", "tonalRamp": ["#17201D", "#2C3A35", "#465851", "#62766E", "#84978F", "#ACBBB5", "#D8E2DE", "#F7FAF9"] },
+      "surface": { "role": "neutral", "displayName": "Clean Surface", "canonical": "#FFFFFF", "tonalRamp": ["#181B1A", "#303533", "#4C5451", "#68736F", "#8B9692", "#B4BDBA", "#E0E5E3", "#FFFFFF"] },
+      "ink": { "role": "neutral", "displayName": "Ledger Ink", "canonical": "#0F1726", "tonalRamp": ["#0F1726", "#253044", "#414D63", "#5F6B80", "#818B9B", "#A8AFBA", "#D5D8DE", "#F5F6F8"] },
+      "emerald": { "role": "primary", "displayName": "Ledger Emerald", "canonical": "#0A684F", "tonalRamp": ["#05241C", "#073B2E", "#07513E", "#0A684F", "#2A846D", "#63A592", "#A7CFC2", "#EAF5F1"] },
+      "amber-soft": { "role": "tertiary", "displayName": "Review Amber", "canonical": "#FFF4D8", "tonalRamp": ["#352509", "#563B0D", "#6D4713", "#8C621C", "#B88835", "#DDB665", "#F4DBA6", "#FFF4D8"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "Route titles and rare high-level product statements." },
+      "title": { "displayName": "Title", "purpose": "Work-area and section headings." },
+      "body": { "displayName": "Body", "purpose": "Interface explanation and supporting copy." },
+      "label": { "displayName": "Label", "purpose": "Persistent labels, table headers, and metadata." }
+    },
+    "shadows": [
+      { "name": "control-lift", "value": "0 1px 2px rgba(15, 23, 38, 0.06)", "purpose": "Inputs and primary actions only." },
+      { "name": "floating-layer", "value": "0 8px 24px rgba(15, 23, 38, 0.10)", "purpose": "Menus, dialogs, and toasts only." }
+    ],
+    "motion": [
+      { "name": "state", "value": "180ms cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Hover, focus, selection, and feedback state changes." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single authoritative action in a work area.",
+      "html": "<button class=\"ds-btn-primary\">Preview transactions</button>",
+      "css": ".ds-btn-primary{height:44px;padding:10px 16px;border:0;border-radius:8px;background:#0A684F;color:#fff;font:600 14px/1 Geist,Inter,system-ui,sans-serif;transition:background 180ms cubic-bezier(.22,1,.36,1)}.ds-btn-primary:hover{background:#07513E}.ds-btn-primary:focus-visible{outline:2px solid #0A684F;outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quieter action with an explicit boundary.",
+      "html": "<button class=\"ds-btn-secondary\">Reset filters</button>",
+      "css": ".ds-btn-secondary{height:44px;padding:10px 16px;border:1px solid #D8E2DE;border-radius:8px;background:#fff;color:#0F1726;font:600 14px/1 Geist,Inter,system-ui,sans-serif;transition:background 180ms cubic-bezier(.22,1,.36,1),border-color 180ms}.ds-btn-secondary:hover{border-color:#8EB8AA;background:#EAF5F1}.ds-btn-secondary:focus-visible{outline:2px solid #0A684F;outline-offset:2px}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A persistent-label field for sensitive transaction input.",
+      "html": "<label class=\"ds-field\"><span>Account label</span><input value=\"Personal\" aria-label=\"Account label\"></label>",
+      "css": ".ds-field{display:grid;gap:6px;color:#52665F;font:600 13px/1.35 Geist,Inter,system-ui,sans-serif}.ds-field input{height:44px;padding:10px 14px;border:1px solid #D8E2DE;border-radius:8px;background:#fff;color:#0F1726;font:400 14px/1.4 Geist,Inter,system-ui,sans-serif}.ds-field input:focus-visible{outline:2px solid #0A684F;outline-offset:1px;border-color:#0A684F}"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "description": "An explicit review state that remains legible without color.",
+      "html": "<span class=\"ds-chip\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 9v4m0 4h.01M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z\"/></svg>Needs review</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #E7C77A;border-radius:6px;background:#FFF4D8;color:#6D4713;font:600 12px/1.2 Geist,Inter,system-ui,sans-serif}"
+    },
+    {
+      "name": "Work Surface",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A flat bounded surface for a complete task, never decoration.",
+      "html": "<section class=\"ds-surface\"><h3>Review drafts</h3><p>Correct parser output before saving.</p></section>",
+      "css": ".ds-surface{padding:24px;border:1px solid #D8E2DE;border-radius:12px;background:#fff;color:#0F1726;font-family:Geist,Inter,system-ui,sans-serif}.ds-surface h3{margin:0;font-size:20px;line-height:1.25}.ds-surface p{margin:8px 0 0;color:#52665F;font-size:14px;line-height:1.5}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Ledger",
+    "overview": "Ledgerly feels like a well-kept financial notebook translated into a precise digital tool. It is light, legible, and calm under sustained use. Dense information is organized through alignment, typography, and tonal surfaces instead of decorative containers. The system is product-first. Familiar controls and restrained motion let the interface disappear behind review, filtering, and analysis.",
+    "keyCharacteristics": ["Quiet, cool-neutral surfaces with one authoritative emerald action color.", "Compact but readable typography with tabular financial figures.", "Visible uncertainty, duplicate status, privacy boundaries, and next actions.", "Structural responsive behavior rather than shrinking type or hiding core controls.", "State-driven motion only, with reduced-motion support."],
+    "rules": [
+      { "name": "The One Authority Rule", "body": "Emerald is reserved for actions, focus, selection, and confirmed state. If it appears as decoration, remove it.", "section": "colors" },
+      { "name": "The Explicit State Rule", "body": "Success, warning, error, debit, and credit always include words or icons. Color never carries the meaning alone.", "section": "colors" },
+      { "name": "The Accounting Line Rule", "body": "Columns of currency, confidence, dates, and balances use tabular numerals and align by value, not by decoration.", "section": "typography" },
+      { "name": "The Flat-by-Default Rule", "body": "If removing a shadow does not reduce comprehension, the shadow is forbidden.", "section": "elevation" }
+    ],
+    "dos": ["Do keep financial values explicit with currency codes or symbols, signs, and tabular numerals.", "Do keep body and placeholder text at WCAG 2.2 AA contrast or higher.", "Do distinguish empty accounts from empty filtered results and provide the next useful action.", "Do use 150-220ms state transitions and remove non-essential motion for reduced-motion users.", "Do make tenant isolation and aggregate-only AI behavior inspectable in copy and documentation."],
+    "donts": ["Don't use trading-terminal cosplay with black surfaces, neon ticks, and artificial urgency.", "Don't build generic AI-finance dashboards from interchangeable metric cards, gradients, and vague claims.", "Don't use gamified budgeting, confetti, shame, or red-versus-green color as the only signal.", "Don't use decorative glassmorphism, oversized radii, gradient text, or colored side-stripe borders.", "Don't pair 1px borders with wide decorative shadows on cards or buttons.", "Don't combine unrelated currencies into one total or chart.", "Don't make security claims that are not backed by visible architecture, tests, or precise behavior."]
+  }
+}

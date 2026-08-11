@@ -66,12 +66,12 @@ export function AuthForm({ mode }: AuthFormProps) {
     }
 
     toast.success(successMessage);
-    router.push("/");
+    router.push("/overview");
     router.refresh();
   }
 
   return (
-    <Card className="border-slate-200/80 bg-card/95 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+    <Card className="border-0 bg-card shadow-[0_8px_24px_rgba(15,23,42,0.10)]">
       <CardHeader className="gap-3 pb-4">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm shadow-emerald-950/20">
