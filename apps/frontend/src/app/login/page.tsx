@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { ReceiptText, ShieldCheck } from "lucide-react";
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 import { AuthForm } from "@/components/auth-form";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const session = await auth();
+  if (session?.backendToken) redirect("/overview");
+
   return (
-    <main className="grid min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--secondary))_0,transparent_34rem),linear-gradient(180deg,hsl(var(--background)),#fff_48rem)] px-4 py-10 lg:grid-cols-[1fr_minmax(24rem,30rem)] lg:px-12">
+    <main className="grid min-h-screen bg-background px-4 py-10 lg:grid-cols-[1fr_minmax(24rem,30rem)] lg:px-12">
       <section className="mx-auto flex w-full max-w-3xl flex-col justify-center py-8 lg:pr-12">
         <div className="mb-10 flex items-center gap-3">
           <div className="flex size-11 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm shadow-emerald-950/20">
@@ -16,7 +21,7 @@ export default function LoginPage() {
           </div>
         </div>
         <div className="max-w-xl">
-          <h1 className="text-4xl font-semibold leading-tight text-foreground text-balance">Turn raw bank text into a private ledger.</h1>
+          <h1 className="text-4xl font-semibold leading-tight tracking-[-0.025em] text-foreground text-balance">Turn raw bank text into a private ledger.</h1>
           <p className="mt-4 max-w-prose text-base leading-7 text-muted-foreground">
             Paste transaction snippets, save structured records, and keep every row scoped to your own authenticated workspace.
           </p>

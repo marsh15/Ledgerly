@@ -259,12 +259,14 @@ Supported amount and debit indicators:
 - `₹1,250.00 debited`
 - `₹2,999.00 Dr`
 - `$42.50`
+- `€42.50`, `EUR 42.50`, `£42.50`, and `GBP 42.50`
 - `->` and `→` balance arrows
 
 Currency behavior:
 
 - `₹`, `Rs`, and `INR` entries are stored and displayed as `INR`.
 - `$` and `USD` entries are stored and displayed as `USD`.
+- `€`/`EUR` and `£`/`GBP` entries are stored and displayed as `EUR` and `GBP`.
 - Entries without an explicit currency remain unset and carry a review issue.
 - AI spending insights receive tenant-scoped aggregate currency metadata and must format amounts with the stored transaction currency rather than defaulting to dollars.
 
