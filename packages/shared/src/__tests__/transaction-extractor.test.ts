@@ -100,6 +100,11 @@ Category: Cloud`);
     expect(result.issues).toEqual([expect.objectContaining({ field: "type" })]);
   });
 
+  it("recognizes euro and pound currency markers", () => {
+    expect(extractTransaction("Date: 18 Dec 2025 Description: EURO SHOP Amount: €42.50 credited").currencyCode).toBe("EUR");
+    expect(extractTransaction("Date: 18 Dec 2025 Description: UK SHOP Amount: GBP 21.00 debited").currencyCode).toBe("GBP");
+  });
+
   it("keeps missing and impossible required fields unset with explicit issues", () => {
     const result = extractTransaction("2026-02-30 Description: Mystery Amount: 42.00");
     expect(result).toMatchObject({ date: null, amount: 42, type: null, currencyCode: null });

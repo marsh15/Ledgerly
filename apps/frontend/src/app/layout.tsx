@@ -6,8 +6,19 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ledgerly",
-  description: "Secure personal finance transaction extraction"
+  title: {
+    default: "Ledgerly | Private transaction workspace",
+    template: "%s | Ledgerly"
+  },
+  description: "Turn raw bank alerts into reviewed, tenant-scoped transaction records with deterministic parsing and currency-safe analytics.",
+  applicationName: "Ledgerly",
+  keywords: ["personal finance", "transaction parser", "multi-tenant", "Next.js", "PostgreSQL"],
+  openGraph: {
+    title: "Ledgerly",
+    description: "A private, review-first workspace for turning bank text into an inspectable ledger.",
+    type: "website"
+  },
+  robots: { index: true, follow: true }
 };
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });

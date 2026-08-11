@@ -185,7 +185,7 @@ function findDate(text: string): DateHit | null {
 
 function findTransactionType(text: string, amount: number | null): "DEBIT" | "CREDIT" | null {
   if (amount !== null && amount < 0) return "DEBIT";
-  if (amount !== null && /(?:\+\s*(?:(?:₹|\$|Rs\.?|USD|INR)\s*)?[\d,]|(?:₹|\$|Rs\.?|USD|INR)\s*\+\s*[\d,])/i.test(text)) return "CREDIT";
+  if (amount !== null && /(?:\+\s*(?:(?:₹|\$|€|£|Rs\.?|USD|INR|EUR|GBP)\s*)?[\d,]|(?:₹|\$|€|£|Rs\.?|USD|INR|EUR|GBP)\s*\+\s*[\d,])/i.test(text)) return "CREDIT";
   if (/\b(debit(?:ed)?|dr|withdrawn|spent|paid)\b/i.test(text)) return "DEBIT";
   if (/\b(credit(?:ed)?|cr|deposit(?:ed)?|received)\b/i.test(text)) return "CREDIT";
   return null;
@@ -197,7 +197,7 @@ function normalizeAmount(amount: number, type: "DEBIT" | "CREDIT"): number {
 }
 
 function findAmount(text: string): { raw: string; value: number; index: number; currencyCode: string | null } | null {
-  const labelled = /\bAmount:\s*((?:(?:₹|\$|Rs\.?|USD|INR)\s*)?[+-]?[\d,]+(?:\.\d{2})?)\b/i.exec(text);
+  const labelled = /\bAmount:\s*((?:(?:₹|\$|€|£|Rs\.?|USD|INR|EUR|GBP)\s*)?[+-]?[\d,]+(?:\.\d{2})?)\b/i.exec(text);
   if (labelled?.[0] && labelled[1]) {
     return {
       raw: labelled[0],
@@ -207,7 +207,7 @@ function findAmount(text: string): { raw: string; value: number; index: number; 
     };
   }
 
-  const moneyMatches = [...text.matchAll(/(?:₹|\$|Rs\.?\s*|USD\s*)\s*([+-]?[\d,]+(?:\.\d{2})?)/gi)];
+  const moneyMatches = [...text.matchAll(/(?:₹|\$|€|£|Rs\.?\s*|(?:USD|INR|EUR|GBP)\s*)\s*([+-]?[\d,]+(?:\.\d{2})?)/gi)];
   const debitWord = /\b(debit(?:ed)?|dr|withdrawn|spent|paid)\b/i.test(text);
   const creditWord = /\b(credit(?:ed)?|cr|deposit(?:ed)?|received)\b/i.test(text);
 
@@ -234,7 +234,7 @@ function findAmount(text: string): { raw: string; value: number; index: number; 
 }
 
 function findBalance(text: string): number | null {
-  const hit = /\b(?:Balance after transaction|Available Balance|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|\$|Rs\.?\s*|USD\s*)?([\d,]+(?:\.\d{2})?)/i.exec(text);
+  const hit = /\b(?:Balance after transaction|Available Balance|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|\$|€|£|Rs\.?\s*|(?:USD|INR|EUR|GBP)\s*)?([\d,]+(?:\.\d{2})?)/i.exec(text);
   return hit?.[1] ? parseMoney(hit[1]) : null;
 }
 
@@ -266,7 +266,7 @@ function findCategory(text: string): string | null {
   const labelled = /\bCategory:\s*([A-Za-z][A-Za-z &/-]{1,40})\b/i.exec(text);
   if (labelled?.[1]) return labelled[1].trim();
 
-  const afterBalance = /\b(?:Available Balance|Balance after transaction|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|\$|Rs\.?\s*|USD\s*)?[\d,]+(?:\.\d{2})?\s+([A-Za-z][A-Za-z &/-]{1,40})$/i.exec(text);
+  const afterBalance = /\b(?:Available Balance|Balance after transaction|Bal(?:ance)?)\s*(?:after transaction)?\s*(?::|→|->|-)?\s*(?:₹|\$|€|£|Rs\.?\s*|(?:USD|INR|EUR|GBP)\s*)?[\d,]+(?:\.\d{2})?\s+([A-Za-z][A-Za-z &/-]{1,40})$/i.exec(text);
   return afterBalance?.[1]?.trim() ?? null;
 }
 
@@ -318,13 +318,15 @@ function cleanAccountLabel(value?: string): string {
 }
 
 function parseMoney(value: string): number {
-  const normalized = value.replace(/₹|\$|rs\.?|usd|inr/gi, "").replace(/[,\s]/g, "");
+  const normalized = value.replace(/₹|\$|€|£|rs\.?|usd|inr|eur|gbp/gi, "").replace(/[,\s]/g, "");
   return Number(normalized);
 }
 
 function findCurrencyCode(value: string): string | null {
   if (/(₹|\brs\.?\b|\binr\b)/i.test(value)) return "INR";
   if (/(\$|\busd\b)/i.test(value)) return "USD";
+  if (/(€|\beur\b)/i.test(value)) return "EUR";
+  if (/(£|\bgbp\b)/i.test(value)) return "GBP";
   return null;
 }
 
